@@ -1,0 +1,1042 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AYO — Amat Yakin Oke · Platform PRD v1.4</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Syne:wght@700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+:root{--navy:#1B3A6B;--blue:#2563EB;--blue-light:#DBEAFE;--teal:#0D9488;--teal-light:#CCFBF1;--orange:#EA580C;--orange-light:#FFEDD5;--purple:#7C3AED;--purple-light:#EDE9FE;--green:#16A34A;--green-light:#DCFCE7;--red:#DC2626;--red-light:#FEE2E2;--amber:#D97706;--amber-light:#FEF3C7;--gray-50:#F8FAFC;--gray-100:#F1F5F9;--gray-200:#E2E8F0;--gray-400:#94A3B8;--gray-500:#64748B;--gray-600:#475569;--gray-700:#334155;--gray-800:#1E293B;--gray-900:#0F172A;--sidebar-w:260px}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',sans-serif;background:var(--gray-50);color:var(--gray-800);font-size:14px;line-height:1.65}
+.layout{display:flex;min-height:100vh}
+.sidebar{width:var(--sidebar-w);background:var(--navy);position:fixed;top:0;left:0;bottom:0;overflow-y:auto;z-index:100;padding-bottom:40px}
+.sb-brand{padding:24px 20px 20px;border-bottom:1px solid rgba(255,255,255,.1);margin-bottom:16px}
+.sb-brand .product{font-family:'Syne',sans-serif;font-size:20px;font-weight:800;color:#fff}
+.sb-brand .doctype{font-size:10px;color:rgba(255,255,255,.5);letter-spacing:2px;text-transform:uppercase;margin-top:2px}
+.sb-brand .ver{display:inline-block;margin-top:8px;background:rgba(255,255,255,.1);color:rgba(255,255,255,.7);font-size:10px;padding:2px 8px;border-radius:10px}
+.nav-sec{padding:6px 20px 4px;font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,.35);margin-top:8px}
+.nav-item{display:block;padding:7px 20px;font-size:12px;color:rgba(255,255,255,.65);text-decoration:none;border-left:3px solid transparent;transition:all .15s}
+.nav-item:hover{background:rgba(255,255,255,.07);color:#fff;border-left-color:rgba(255,255,255,.3)}
+.nav-sub{display:block;padding:5px 20px 5px 32px;font-size:11px;color:rgba(255,255,255,.4);text-decoration:none}
+.nav-sub:hover{color:rgba(255,255,255,.7)}
+.main{margin-left:var(--sidebar-w);flex:1}
+.cover{background:linear-gradient(135deg,var(--navy) 0%,#0D2B5E 60%,#1a1a4e 100%);padding:72px 64px;position:relative;overflow:hidden}
+.cover::before{content:'';position:absolute;top:-100px;right:-100px;width:500px;height:500px;background:radial-gradient(circle,rgba(37,99,235,.3) 0%,transparent 70%);pointer-events:none}
+.cv-badge{display:inline-block;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);color:rgba(255,255,255,.8);font-size:10px;font-weight:600;letter-spacing:3px;text-transform:uppercase;padding:6px 16px;border-radius:40px;margin-bottom:24px}
+.cover h1{font-family:'Syne',sans-serif;font-size:52px;font-weight:800;color:#fff;line-height:1.05;letter-spacing:-1px;margin-bottom:8px;position:relative}
+.cover h1 span{color:#60A5FA}
+.cv-sub{font-size:18px;color:rgba(255,255,255,.6);margin-bottom:48px;font-weight:300}
+.cv-div{width:80px;height:4px;background:linear-gradient(90deg,var(--teal),var(--blue));border-radius:2px;margin-bottom:48px}
+.cv-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;position:relative}
+.meta-card{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:16px 20px}
+.meta-card .label{font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,.4);margin-bottom:4px}
+.meta-card .value{font-size:13px;color:rgba(255,255,255,.85);font-weight:500}
+.content{padding:48px 64px 80px;max-width:980px}
+.section{margin-bottom:64px;scroll-margin-top:24px}
+.section-header{display:flex;align-items:center;gap:16px;margin-bottom:32px;padding-bottom:16px;border-bottom:2px solid var(--gray-200)}
+.sec-num{font-family:'Syne',sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;color:var(--blue);background:var(--blue-light);padding:4px 10px;border-radius:4px;white-space:nowrap}
+.section-header h2{font-family:'Syne',sans-serif;font-size:24px;font-weight:800;color:var(--navy);letter-spacing:-.5px}
+h3{font-size:15px;font-weight:700;color:var(--gray-800);margin:28px 0 10px;display:flex;align-items:center;gap:8px}
+h3::before{content:'';display:block;width:4px;height:14px;background:var(--teal);border-radius:2px;flex-shrink:0}
+h4{font-size:12px;font-weight:600;color:var(--gray-500);margin:20px 0 6px;text-transform:uppercase;letter-spacing:1px}
+p{color:var(--gray-600);margin-bottom:12px;line-height:1.7}
+.tw{overflow-x:auto;margin:12px 0 20px;border-radius:10px;border:1px solid var(--gray-200)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+thead th{background:var(--navy);color:#fff;padding:11px 14px;text-align:left;font-size:11px;font-weight:600;letter-spacing:.5px;white-space:nowrap}
+tbody tr:nth-child(even){background:var(--gray-50)}
+tbody tr:hover{background:var(--blue-light)}
+tbody td{padding:10px 14px;border-bottom:1px solid var(--gray-100);color:var(--gray-700);vertical-align:top;line-height:1.5}
+tbody tr:last-child td{border-bottom:none}
+tbody td:first-child{font-weight:600;color:var(--gray-900)}
+code{background:var(--gray-100);padding:1px 5px;border-radius:3px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--purple)}
+ul,ol{padding-left:0;margin:6px 0 14px;list-style:none}
+li{padding:4px 0 4px 22px;position:relative;color:var(--gray-600);line-height:1.6}
+ul li::before{content:'→';position:absolute;left:0;color:var(--teal);font-weight:700;font-size:11px;top:5px}
+ol{counter-reset:ol}
+ol li::before{counter-increment:ol;content:counter(ol)'.';position:absolute;left:0;color:var(--blue);font-weight:700;font-size:11px;top:5px}
+li strong{color:var(--gray-800);font-weight:600}
+.callout{border-radius:10px;padding:14px 18px;margin:14px 0;display:flex;gap:12px;align-items:flex-start}
+.callout-icon{font-size:17px;flex-shrink:0;margin-top:1px}
+.callout-title{font-weight:700;font-size:13px;margin-bottom:3px}
+.callout-text{font-size:12px;line-height:1.6}
+.c-info{background:var(--blue-light);border-left:4px solid var(--blue)}
+.c-info .callout-title{color:var(--blue)}
+.c-info .callout-text{color:#1e40af}
+.c-warn{background:var(--amber-light);border-left:4px solid var(--amber)}
+.c-warn .callout-title{color:var(--amber)}
+.c-warn .callout-text{color:#92400e}
+.c-ok{background:var(--green-light);border-left:4px solid var(--green)}
+.c-ok .callout-title{color:var(--green)}
+.c-ok .callout-text{color:#14532d}
+.c-strat{background:var(--purple-light);border-left:4px solid var(--purple)}
+.c-strat .callout-title{color:var(--purple)}
+.c-strat .callout-text{color:#4c1d95}
+.badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase}
+.bb{background:var(--blue-light);color:var(--blue)}
+.bt{background:var(--teal-light);color:var(--teal)}
+.bo{background:var(--orange-light);color:var(--orange)}
+.bp{background:var(--purple-light);color:var(--purple)}
+.bg{background:var(--green-light);color:var(--green)}
+.br{background:var(--red-light);color:var(--red)}
+.ba{background:var(--amber-light);color:var(--amber)}
+.bx{background:var(--gray-100);color:var(--gray-600)}
+.tier-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin:14px 0 22px}
+.tier-card{border-radius:12px;border:1px solid var(--gray-200);padding:18px;background:#fff;position:relative;overflow:hidden}
+.tier-card.feat{border-color:#FCD34D;background:linear-gradient(135deg,#FFFBEB,#fff)}
+.tier-card.feat::before{content:'★ TARGET';position:absolute;top:10px;right:-14px;background:#FBBF24;color:#78350F;font-size:7px;font-weight:800;letter-spacing:1px;padding:3px 22px;transform:rotate(35deg)}
+.tn{font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--gray-400);margin-bottom:6px}
+.tp{font-family:'Syne',sans-serif;font-size:20px;font-weight:800;color:var(--navy);line-height:1}
+.tu{font-size:11px;color:var(--gray-400);margin-top:2px;margin-bottom:10px}
+.td{height:1px;background:var(--gray-100);margin:10px 0}
+.tcl{font-size:10px;color:var(--gray-400);margin-bottom:2px}
+.tc{font-size:11px;font-weight:600;color:var(--teal)}
+.stat-row{display:grid;grid-template-columns:130px 1fr auto;gap:14px;align-items:center;padding:11px 14px;border-radius:8px;margin-bottom:6px;background:#fff;border:1px solid var(--gray-100)}
+.sp{display:inline-block;padding:3px 9px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:.5px}
+.p-prob{background:var(--amber-light);color:var(--amber)}
+.p-act{background:var(--green-light);color:var(--green)}
+.p-dorm{background:var(--blue-light);color:var(--blue)}
+.p-inact{background:var(--orange-light);color:var(--orange)}
+.p-susp{background:var(--red-light);color:var(--red)}
+.bar-wrap{display:flex;align-items:center;gap:8px;min-width:110px}
+.bar{height:7px;border-radius:4px;background:var(--gray-100);flex:1;overflow:hidden}
+.bf{height:100%;border-radius:4px}
+.f100{width:100%;background:var(--green)}
+.f50{width:50%;background:var(--amber)}
+.f25{width:25%;background:var(--orange)}
+.f0{width:0;background:var(--red)}
+.bpct{font-family:'Syne',sans-serif;font-size:12px;font-weight:700;width:34px;text-align:right}
+.cg{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:14px 0}
+.cc{background:#fff;border:1px solid var(--gray-200);border-radius:12px;overflow:hidden}
+.ch{padding:12px 14px;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase}
+.cl1 .ch{background:var(--teal-light);color:var(--teal)}
+.cl2 .ch{background:var(--blue-light);color:var(--blue)}
+.cl3 .ch{background:var(--orange-light);color:var(--orange)}
+.cr{display:flex;justify-content:space-between;padding:7px 14px;border-bottom:1px solid var(--gray-50);font-size:12px}
+.cr:last-child{border-bottom:none}
+.cr .cl{color:var(--gray-500)}
+.cr .cv{font-weight:600;color:var(--gray-800)}
+.ep{background:#fff;border:1px solid var(--gray-200);border-radius:10px;padding:14px;margin-bottom:9px;display:flex;gap:14px;align-items:flex-start}
+.method{background:var(--teal);color:#fff;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;padding:3px 7px;border-radius:4px;flex-shrink:0;margin-top:1px}
+.mget{background:var(--blue)}
+.eppath{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;color:var(--navy);margin-bottom:3px}
+.epdesc{font-size:12px;color:var(--gray-500)}
+.eppar{margin-top:7px;display:flex;flex-wrap:wrap;gap:5px}
+.epp{font-family:'JetBrains Mono',monospace;font-size:10px;background:var(--gray-100);color:var(--purple);padding:2px 6px;border-radius:3px}
+.pg{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:14px 0}
+.pc{background:#fff;border-radius:12px;border:1px solid var(--gray-200);overflow:hidden}
+.ph{padding:14px 18px}
+.p1 .ph{background:var(--teal-light)}
+.p2 .ph{background:var(--blue-light)}
+.p3 .ph{background:var(--purple-light)}
+.plabel{font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;opacity:.6;margin-bottom:3px}
+.p1 .plabel{color:var(--teal)}
+.p2 .plabel{color:var(--blue)}
+.p3 .plabel{color:var(--purple)}
+.ptitle{font-family:'Syne',sans-serif;font-size:14px;font-weight:800}
+.p1 .ptitle{color:var(--teal)}
+.p2 .ptitle{color:var(--blue)}
+.p3 .ptitle{color:var(--purple)}
+.ptarget{font-size:11px;opacity:.65;margin-top:2px}
+.pb{padding:14px 18px}
+.pi{font-size:12px;color:var(--gray-600);padding:3px 0 3px 15px;position:relative}
+.pi::before{content:'✓';position:absolute;left:0;color:var(--green);font-weight:700;font-size:11px}
+.oi{background:#fff;border:1px solid var(--gray-200);border-radius:10px;padding:14px;margin-bottom:9px;display:grid;grid-template-columns:30px 1fr;gap:10px}
+.on{font-family:'Syne',sans-serif;font-weight:800;font-size:18px;color:var(--gray-200)}
+.ot{font-weight:700;font-size:13px;color:var(--gray-800);margin-bottom:3px}
+.od{font-size:12px;color:var(--gray-500)}
+.oim{font-size:11px;color:var(--orange);font-weight:600;margin-top:5px}
+@media(max-width:900px){:root{--sidebar-w:0px}.sidebar{display:none}.cover{padding:36px 24px}.cover h1{font-size:34px}.content{padding:28px 20px}.cg,.pg{grid-template-columns:1fr}}
+/* ── v1.3 ADDITIONS ── */
+.param-block{background:#0F172A;border-radius:14px;overflow:hidden;margin:14px 0 24px}
+.param-block-head{padding:12px 20px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;letter-spacing:2px;text-transform:uppercase;display:flex;align-items:center;gap:10px}
+.pbh-l1{background:rgba(13,148,136,.25);color:#5EEAD4}
+.pbh-l2{background:rgba(37,99,235,.25);color:#93C5FD}
+.pbh-l3{background:rgba(234,88,12,.25);color:#FCA87A}
+.pbh-shared{background:rgba(124,58,237,.25);color:#C4B5FD}
+.pbh-clock{background:rgba(22,163,74,.25);color:#86EFAC}
+.param-row{display:grid;grid-template-columns:280px 160px 1fr;border-bottom:1px solid rgba(255,255,255,.05)}
+.param-row:last-child{border-bottom:none}
+.param-row:hover{background:rgba(255,255,255,.03)}
+.param-key{padding:10px 20px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#7DD3FC;border-right:1px solid rgba(255,255,255,.05)}
+.param-default{padding:10px 16px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;color:#FCD34D;border-right:1px solid rgba(255,255,255,.05)}
+.param-desc{padding:10px 16px;font-size:11px;color:rgba(255,255,255,.4);line-height:1.5}
+.status-grid-v13{display:flex;flex-direction:column;gap:6px;margin:12px 0 20px}
+.status-row-v13{display:grid;grid-template-columns:130px 1fr 120px 200px;gap:12px;align-items:center;padding:12px 14px;border-radius:8px;background:#fff;border:1px solid var(--gray-100)}
+.mult-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:12px 0 20px}
+.mult-card{background:#fff;border:1px solid var(--gray-100);border-radius:10px;padding:14px 10px;text-align:center}
+.mult-status{font-family:'Syne',sans-serif;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px}
+.mult-bar-wrap{height:6px;background:var(--gray-100);border-radius:3px;overflow:hidden;margin:0 auto 8px}
+.mult-bar{height:100%;border-radius:3px}
+.mult-pct{font-family:'Syne',sans-serif;font-size:18px;font-weight:800}
+.mult-cond{font-size:10px;color:var(--gray-500);margin-top:4px;line-height:1.3}
+.axis-grid-v13{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:12px 0 20px}
+.axis-card-v13{background:#fff;border:1px solid var(--gray-200);border-radius:12px;overflow:hidden}
+.axis-head-v13{padding:12px 18px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;letter-spacing:2px;text-transform:uppercase;border-bottom:1px solid var(--gray-200)}
+.ah-l2{color:var(--blue);background:var(--blue-light)}
+.ah-l3{color:var(--orange);background:var(--orange-light)}
+.ah-gold{color:var(--amber);background:var(--amber-light)}
+.axis-body-v13{padding:16px 18px}
+.axis-threshold{font-family:'Syne',sans-serif;font-size:26px;font-weight:800;margin-bottom:4px}
+.or-badge{display:inline-block;background:var(--amber-light);color:var(--amber);border:1px solid rgba(217,119,6,.3);padding:2px 8px;border-radius:20px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;margin:8px 4px 0 0}
+.tenure-track{position:relative;height:48px;background:var(--gray-100);border-radius:8px;overflow:hidden;margin:14px 0 8px}
+.tenure-coaching{position:absolute;top:0;left:0;bottom:0;width:75%;background:linear-gradient(90deg,var(--teal-light),#e0faf6);border-right:2px dashed var(--teal);display:flex;align-items:center;padding-left:16px;font-size:12px;font-weight:600;color:var(--teal)}
+.tenure-post{position:absolute;top:0;right:0;bottom:0;width:25%;display:flex;align-items:center;padding-left:12px;font-size:11px;color:var(--gray-400)}
+.tenure-markers{display:flex;justify-content:space-between;font-size:10px;color:var(--gray-400);font-family:'JetBrains Mono',monospace;margin-bottom:14px}
+.tenure-markers .grad{color:var(--amber);font-weight:700}
+.income-card-v13{background:#fff;border:1px solid var(--gray-200);border-radius:12px;overflow:hidden}
+.income-head-v13{padding:12px 16px;font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;border-bottom:1px solid var(--gray-100)}
+.income-row-v13{display:flex;justify-content:space-between;align-items:flex-start;padding:9px 16px;border-bottom:1px solid var(--gray-50);gap:12px}
+.income-row-v13:last-child{border-bottom:none}
+.income-row-v13 .il{font-size:12px;color:var(--gray-500);flex:1}
+.income-row-v13 .iv{font-size:12px;font-weight:600;color:var(--gray-800);white-space:nowrap}
+.promo-gate-v13{background:var(--gray-50);border:1px solid var(--gray-200);border-radius:12px;padding:20px;margin:14px 0 20px;position:relative;overflow:hidden}
+.promo-gate-v13::before{content:'';position:absolute;top:0;left:0;right:0;height:3px}
+.pg-to-l2::before{background:linear-gradient(90deg,var(--teal),var(--blue))}
+.pg-to-l3::before{background:linear-gradient(90deg,var(--blue),var(--orange))}
+.gate-items{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:14px}
+.gate-item{background:#fff;border-radius:10px;padding:16px;border:1px solid var(--gray-200)}
+.gate-val{font-family:'Syne',sans-serif;font-size:28px;font-weight:800;line-height:1;margin-bottom:4px}
+.gate-label{font-size:11px;color:var(--gray-500);line-height:1.4}
+@media(max-width:900px){.param-row{grid-template-columns:1fr 1fr}.param-desc{display:none}.axis-grid-v13{grid-template-columns:1fr}.mult-grid{grid-template-columns:repeat(3,1fr)}.status-row-v13{grid-template-columns:1fr 1fr}}
+
+</style>
+</head>
+<body>
+<div class="layout">
+
+<nav class="sidebar">
+  <div class="sb-brand">
+    <div class="product">AYO</div>
+    <div class="doctype">Platform PRD · Amat Yakin Oke</div>
+    <div class="ver">PRD v1.4 — June 2026</div>
+  </div>
+  <div class="nav-sec">Contents</div>
+  <a class="nav-item" href="#s1">1. Product Overview</a>
+  <a class="nav-item" href="#s2">2. Pricing Architecture</a>
+  <a class="nav-sub" href="#tiers">2.1 Subscription Tiers</a>
+  <a class="nav-sub" href="#promos">2.2 Promotions Engine</a>
+  <a class="nav-sub" href="#giftcards">2.3 Gift Card Codes</a>
+  <a class="nav-item" href="#s3">3. Agent Network</a>
+  <a class="nav-sub" href="#hierarchy">3.1 Hierarchy</a>
+  <a class="nav-sub" href="#l1-lifecycle">3.2 L1 Lifecycle &amp; Status</a>
+  <a class="nav-sub" href="#l2-kpi">3.3 L2 KPI &amp; Status</a>
+  <a class="nav-sub" href="#l3-kpi">3.4 L3 KPI &amp; Status</a>
+  <a class="nav-sub" href="#tenure-clock">3.5 Tenure Clock</a>
+  <a class="nav-sub" href="#commission">3.6 Commission Engine</a>
+  <a class="nav-sub" href="#param-registry">3.7 Parameter Registry</a>
+  <a class="nav-sub" href="#tracking">3.8 Tracking</a>
+  <a class="nav-item" href="#s4">4. UI Channels</a>
+  <a class="nav-sub" href="#agentapp">4A. Agent App</a>
+  <a class="nav-sub" href="#coordportal">4B. Coordinator Portal</a>
+  <a class="nav-sub" href="#adminconsole">4C. Admin Console</a>
+  <a class="nav-item" href="#s5">5. API / SDK</a>
+  <a class="nav-item" href="#s6">6. Messaging Module</a>
+  <a class="nav-item" href="#s7">7. Non-Functional Req.</a>
+  <a class="nav-item" href="#s8">8. Integrations</a>
+  <a class="nav-item" href="#s9">9. Phased Delivery</a>
+  <a class="nav-item" href="#s10">10. Open Items</a>
+</nav>
+
+<main class="main">
+<div class="cover">
+  <div class="cv-badge">Product Requirements Document</div>
+  <h1>AYO <span>Platform</span><br>PRD</h1>
+  <div class="cv-sub">Amat Yakin Oke &nbsp;·&nbsp; Agent Network · Licensing · Commission · Notifications</div>
+  <div class="cv-div"></div>
+  <div class="cv-meta">
+    <div class="meta-card"><div class="label">Version</div><div class="value">1.4 — AYO rename · Phase 1 auth · Notification model</div></div>
+    <div class="meta-card"><div class="label">Product</div><div class="value">AYO Platform (Amat Yakin Oke) — fka SMSP</div></div>
+    <div class="meta-card"><div class="label">Prepared By</div><div class="value">Darwin Tjoe — Founder, Accurate.id</div></div>
+    <div class="meta-card"><div class="label">Audience</div><div class="value">Development Team · Technical Architects</div></div>
+    <div class="meta-card"><div class="label">Repository</div><div class="value">github.com/darwintjoe/ayo</div></div>
+    <div class="meta-card"><div class="label">Date</div><div class="value">June 2026</div></div>
+  </div>
+</div>
+
+<div class="content">
+
+<!-- S1 -->
+<div class="section" id="s1">
+  <div class="section-header"><span class="sec-num">SECTION 01</span><h2>Product Overview</h2></div>
+  <h3>Purpose</h3>
+  <p><strong>AYO</strong> (Amat Yakin Oke) is the commercial backend and multi-channel frontend system managing the full commercial lifecycle of the Sell More POS application. It operates independently from the Sell More app and communicates via a lightweight API. The project lives at <code>github.com/darwintjoe/ayo</code>.</p>
+  <p>AYO handles subscription licensing, agent network management, commission calculation, promotional pricing, gift card code generation, and in-platform notifications — enabling Sell More to scale to tens of millions of users without adding operational overhead.</p>
+  <div class="callout c-strat"><div class="callout-icon">⚡</div><div><div class="callout-title">Zero-COGS Architecture Principle</div><div class="callout-text">The Sell More app runs entirely locally. AYO is contacted only at install, activation, renewal, and backup. Any subscription revenue — at any price point — is almost entirely profit, enabling agent commission structures impossible for cloud-based competitors.</div></div></div>
+  <h3>System Components</h3>
+  <div class="tw"><table>
+    <thead><tr><th>Component</th><th>Description</th><th>Users</th></tr></thead>
+    <tbody>
+      <tr><td>Agent Mobile App</td><td>PWA for field agents — code generation, merchant list, earnings dashboard, daily workflow</td><td><span class="badge bt">L1 Field Agents</span></td></tr>
+      <tr><td>Coordinator Portal</td><td>Web portal for Area Coordinators — team management, activity monitoring, area performance</td><td><span class="badge bb">L2 Coordinators</span></td></tr>
+      <tr><td>Regional Dashboard</td><td>Executive view for Regional Masters — KPIs, coordinator oversight, bonus tracking</td><td><span class="badge bo">L3 Regional Masters</span></td></tr>
+      <tr><td>Admin Console</td><td>Full system control — pricing, promotions, agent management, all reporting, configuration</td><td><span class="badge bp">Sell More Admin</span></td></tr>
+      <tr><td>Faceless API / SDK</td><td>Lightweight REST API embedded in Sell More app for license validation, activation, backup</td><td><span class="badge bx">Sell More App</span></td></tr>
+      <tr><td>Notification &amp; Messaging Module</td><td>In-platform notification bell (Phase 1) + in-app messaging for hierarchical team communication (Phase 2). WhatsApp Business API fallback deferred to Phase 2.</td><td><span class="badge bg">All Levels</span></td></tr>
+    </tbody>
+  </table></div>
+</div>
+
+<!-- S2 -->
+<div class="section" id="s2">
+  <div class="section-header"><span class="sec-num">SECTION 02</span><h2>Pricing Architecture</h2></div>
+  <h3 id="tiers">Subscription Tiers</h3>
+  <p>All prices configurable in Admin Console. Daily and Weekly are presented separately as a cashflow-segment entry point — never mixed with subscription tiers in the same UI view.</p>
+  <div class="tier-grid">
+    <div class="tier-card"><div class="tn">Daily</div><div class="tp">Rp 4,000</div><div class="tu">per day used</div><div class="td"></div><div class="tcl">Agent commission</div><div class="tc">None</div><div style="margin-top:8px"><span class="badge bb">Self-serve</span></div></div>
+    <div class="tier-card"><div class="tn">Weekly</div><div class="tp">Rp 28,000</div><div class="tu">7 days (daily × 7)</div><div class="td"></div><div class="tcl">Agent commission</div><div class="tc">None</div><div style="margin-top:8px"><span class="badge bb">Self-serve</span></div></div>
+    <div class="tier-card"><div class="tn">Monthly</div><div class="tp">Rp 69,000</div><div class="tu">per month — price anchor</div><div class="td"></div><div class="tcl">Agent commission</div><div class="tc">40%→30%→20% residual (Y1/Y2/Y3)</div><div style="margin-top:8px"><span class="badge bt">Self-serve</span> <span class="badge bg">Agent</span></div></div>
+    <div class="tier-card feat"><div class="tn">Annual</div><div class="tp">Rp 499,000</div><div class="tu">per year — saves 40% vs monthly</div><div class="td"></div><div class="tcl">Agent commission</div><div class="tc">Rp 150K (Y1) + Rp 100K (Y2 renewal)</div><div style="margin-top:8px"><span class="badge bt">Self-serve</span> <span class="badge bg">Agent</span></div></div>
+    <div class="tier-card"><div class="tn">Lifetime Solo</div><div class="tp">Rp 1,499,000</div><div class="tu">one-time · forever · decoy</div><div class="td"></div><div class="tcl">Agent commission</div><div class="tc">Rp 500,000 flat (2 tranches)</div><div style="margin-top:8px"><span class="badge bo">Agent only</span></div></div>
+    <div class="tier-card"><div class="tn">Lifetime Duo</div><div class="tp">Rp 1,999,000</div><div class="tu">2 codes · 24–48h expiry</div><div class="td"></div><div class="tcl">Agent commission</div><div class="tc">Rp 700,000 flat (2 tranches)</div><div style="margin-top:8px"><span class="badge bo">Agent only</span></div></div>
+  </div>
+  <div class="callout c-strat"><div class="callout-icon">🎯</div><div><div class="callout-title">Ariely Decoy Principle — UI Presentation Order</div><div class="callout-text">Monthly (anchor) → Annual (target — "obvious value, saves 40%") → Lifetime Solo (decoy — makes Annual look rational) → Lifetime Duo (irresistible — always below Rp 2,000,000). Annual must win. It generates the highest company LTV.</div></div></div>
+
+  <h3 id="promos">Promotions Engine</h3>
+  <div class="tw"><table>
+    <thead><tr><th>Promotion Type</th><th>Description</th><th>Example</th></tr></thead>
+    <tbody>
+      <tr><td>Percentage Discount</td><td>Reduce price by X% for defined period</td><td>Ramadan: 20% off Annual</td></tr>
+      <tr><td>Fixed Amount Discount</td><td>Reduce price by fixed Rp amount</td><td>First 1,000 users: Rp 100K off Lifetime</td></tr>
+      <tr><td>Extended Duration</td><td>Add bonus days/months to subscription</td><td>Buy Annual, get 2 months free</td></tr>
+      <tr><td>Bundled Tier Upgrade</td><td>Purchase lower tier, receive higher tier pricing</td><td>Harbolnas: monthly billed at annual rate</td></tr>
+      <tr><td>Geographic Pricing</td><td>Different base price by province or city tier</td><td>Eastern Indonesia price adjustment</td></tr>
+      <tr><td>Agent-Exclusive Promo</td><td>Code valid only via agent network</td><td>Launch quarter agent push bonus</td></tr>
+      <tr><td>Referral Promo</td><td>Discount triggered when referred by existing user</td><td>Refer a friend: both get 1 month free</td></tr>
+      <tr><td>Duo Promo Variant</td><td>Adjust duo bundle price temporarily</td><td>Launch event: Duo at Rp 1,799K</td></tr>
+      <tr><td>Trial Extension</td><td>Extend 7-day trial for specific campaigns</td><td>BRI partnership: 14-day trial</td></tr>
+    </tbody>
+  </table></div>
+  <ul>
+    <li>Each promotion defines: start/end date, max redemptions, eligible tiers, eligible channels, geographic scope</li>
+    <li>Promotions stackable or mutually exclusive — configurable per promotion</li>
+    <li>L2+ agents can create limited promos within admin-defined bounds (e.g. max 10%, valid 7 days, own territory)</li>
+    <li>Real-time performance dashboard: redemptions, revenue impact, conversion lift</li>
+  </ul>
+
+  <h3 id="giftcards">Gift Card / Prepaid Code Generation</h3>
+  <div class="tw"><table>
+    <thead><tr><th>Parameter</th><th>Requirement</th></tr></thead>
+    <tbody>
+      <tr><td>Code Format</td><td><code>SM-XXXX-XXXX-XXXXX</code> — alphanumeric, case-insensitive. Exclude O, 0, I, 1, l</td></tr>
+      <tr><td>Code Types</td><td>Single-use license | Multi-use promo | Time-limited (expires unused)</td></tr>
+      <tr><td>Batch Generation</td><td>10 to 100,000 codes per batch, exported as CSV or print-ready PDF</td></tr>
+      <tr><td>Embedded Metadata</td><td>Tier, duration/type, generated date, expiry date, agent ID, region</td></tr>
+      <tr><td>Validation</td><td>Server-validated on first use only. All subsequent operation fully offline.</td></tr>
+      <tr><td>Duo Code Pairing</td><td>Linked pair with shared 24–48h activation window. Code 2 held until second merchant identified.</td></tr>
+      <tr><td>Physical Voucher Export</td><td>PDF formatted for print-ready scratch card with barcode + QR per code</td></tr>
+      <tr><td>Distribution Tracking</td><td>Every code traceable to batch, agent, date, activation status in Admin Console</td></tr>
+      <tr><td>Retail Channel Codes</td><td>Separate type for Indomaret/Alfamart with retail margin metadata embedded</td></tr>
+    </tbody>
+  </table></div>
+</div>
+
+
+<!-- S3 v1.3 — FULL REWRITE -->
+<div class="section" id="s3">
+  <div class="section-header"><span class="sec-num">SECTION 03</span><h2>Agent Network Management</h2></div>
+
+  <div class="callout c-strat"><div class="callout-icon">⚡</div><div><div class="callout-title">All parameters in this section are admin-editable</div><div class="callout-text">Every threshold, percentage, amount, and duration listed here is a named system parameter stored in the Admin Console parameter registry (Section 3.7). No values are hardcoded. Regional overrides and lifecycle-phase adjustments are supported for all parameters. Changes are future-dated and audit-logged.</div></div></div>
+
+  <!-- 3.1 HIERARCHY -->
+  <h3 id="hierarchy">3.1 Agent Hierarchy</h3>
+  <div class="tw"><table>
+    <thead><tr><th>Level</th><th>Title</th><th>Manages</th><th>Scope</th><th>Roster Cap</th><th>Promotion Gate</th></tr></thead>
+    <tbody>
+      <tr><td><span class="badge bt">L1</span></td><td>Field Agent</td><td>Direct merchant activations</td><td>Kecamatan / City</td><td>—</td><td>Open enrollment. 3-month probation. Commitment fee <code>l1_commitment_fee</code>.</td></tr>
+      <tr><td><span class="badge bb">L2</span></td><td>Area Coordinator</td><td>10–15 Field Agents (soft cap)</td><td>City / Kabupaten</td><td><code>l2_roster_soft_cap</code> (default: 15)</td><td><code>l2_promo_min_months_l1</code> Active months + <code>l2_promo_min_activations</code> cumulative + <code>l2_promo_min_recruits</code> agents recruited</td></tr>
+      <tr><td><span class="badge bo">L3</span></td><td>Regional Master</td><td>5–8 Area Coordinators (soft cap)</td><td>Province / Region</td><td><code>l3_roster_soft_cap</code> (default: 8)</td><td><code>l3_promo_min_months_l2</code> Active L2 months + <code>l3_promo_min_l2s_built</code> L2s developed + <code>l3_promo_min_active_merchants</code> active merchants in network</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="callout c-warn"><div class="callout-icon">📌</div><div><div class="callout-title">Roster caps are soft — not hard blocks</div><div class="callout-text">At cap: system shows "At Capacity" badge in dashboard. L2/L3 cannot accept new recruits until a slot opens (graduation, voluntary exit, or admin override). Admin can override per agent with justification log. Suspended subordinates count in roster for <code>l2_suspended_denominator_quarters</code> quarters, then auto-removed.</div></div></div>
+
+  <!-- 3.2 L1 LIFECYCLE -->
+  <h3 id="l1-lifecycle">3.2 L1 Field Agent — Enrollment &amp; Status Engine</h3>
+  <h4>Enrollment Flow</h4>
+  <ol>
+    <li>Agent registers via Agent App: name, phone, ID card photo, region selection</li>
+    <li>OTP phone verification</li>
+    <li>Auto-approved on valid referrer code. Every agent must register with a referrer code from an existing agent, coordinator, or regional master.</li>
+    <li>On approval: <strong>Probation</strong> status. Access to Agent Code Generator App granted. Residual earnings held in escrow.</li>
+    <li>Month <code>l1_probation_months</code> (default: 3): system prompts commitment fee payment of <code>l1_commitment_fee</code> (default: Rp 100,000)</li>
+    <li>On fee payment: <strong>Active</strong> status. Escrow released. Merchandise dispatched (T-shirt, mug, pouch).</li>
+    <li>Fee waived if agent closes <code>l1_fee_waiver_extra_activations</code> (default: 3) activations above minimum in final probation month</li>
+    <li>Escrow forfeited if fee not paid within <code>l1_escrow_forfeiture_days</code> (default: 30) days after probation ends</li>
+  </ol>
+
+  <h4>L1 Status Table — Quarterly KPI</h4>
+  <p>Status is evaluated at the end of each quarter. All thresholds are admin-configurable parameters.</p>
+
+  <div class="status-grid-v13">
+    <div class="status-row-v13" style="background:var(--amber-light);border-color:var(--amber)">
+      <div><span class="sp p-prob">Probation</span></div>
+      <div style="font-size:12px;color:var(--gray-600)">Month 1–<code>l1_probation_months</code>, any activity. Escrow active.</div>
+      <div class="bar-wrap"><div class="bar"><div class="bf f100"></div></div><span class="bpct" style="color:var(--green)">100%</span></div>
+      <div style="font-size:11px;color:var(--gray-500)">Pay <code>l1_commitment_fee</code> → Active</div>
+    </div>
+    <div class="status-row-v13">
+      <div><span class="sp p-act">Active</span></div>
+      <div style="font-size:12px;color:var(--gray-600)">≥ <code>l1_active_min_activations</code> (default: 3) new activations/quarter + fee paid</div>
+      <div class="bar-wrap"><div class="bar"><div class="bf f100"></div></div><span class="bpct" style="color:var(--green)">100%</span></div>
+      <div style="font-size:11px;color:var(--gray-500)">Full residual. Eligible for all bonuses.</div>
+    </div>
+    <div class="status-row-v13">
+      <div><span class="sp p-dorm">Dormant</span></div>
+      <div style="font-size:12px;color:var(--gray-600)"><code>l1_dormant_min_activations</code>–<code>l1_active_min_activations</code>−1 (default: 1–2) activations/quarter. Warning at week <code>l1_dormant_warning_week</code>.</div>
+      <div class="bar-wrap"><div class="bar"><div class="bf f50"></div></div><span class="bpct" style="color:var(--amber)"><code>l1_dormant_residual_pct</code> (50%)</span></div>
+      <div style="font-size:11px;color:var(--gray-500)">Residual penalised. Recovery: hit Active threshold next quarter.</div>
+    </div>
+    <div class="status-row-v13">
+      <div><span class="sp p-inact">Inactive</span></div>
+      <div style="font-size:12px;color:var(--gray-600)">0 activations for 1 quarter</div>
+      <div class="bar-wrap"><div class="bar"><div class="bf f25"></div></div><span class="bpct" style="color:var(--orange)"><code>l1_inactive_residual_pct</code> (25%)</span></div>
+      <div style="font-size:11px;color:var(--gray-500)">Severe penalty. Recovery: ≥ <code>l1_active_min_activations</code> next quarter → 100%.</div>
+    </div>
+    <div class="status-row-v13">
+      <div><span class="sp p-susp">Suspended</span></div>
+      <div style="font-size:12px;color:var(--gray-600)">0 activations for 2 consecutive quarters. Title retained. Recovery still possible.</div>
+      <div class="bar-wrap"><div class="bar"><div class="bf f0"></div></div><span class="bpct" style="color:var(--red)">0%</span></div>
+      <div style="font-size:11px;color:var(--gray-500)">Override paused. Personal residuals intact. Merchant ownership retained unless Suspended for <code>l1_ownership_transfer_quarters</code> full quarter(s).</div>
+    </div>
+  </div>
+
+  <div class="callout c-warn"><div class="callout-icon">🔒</div><div><div class="callout-title">Exit Behavior Protection</div><div class="callout-text"><strong>Lifetime conversions of existing monthly users do NOT count toward quarterly activation minimum.</strong> Prevents agents converting their book before leaving. Max <code>l1_lifetime_conversion_cap_pct</code> (default: 20%) of active monthly user base may be converted to lifetime per quarter per agent.</div></div></div>
+
+  <!-- 3.3 L2 KPI -->
+  <h3 id="l2-kpi">3.3 L2 Area Coordinator — Two-Axis KPI &amp; Status</h3>
+
+  <p>L2 status is evaluated <strong>quarterly</strong>. Both axes must be independently assessed. The status assigned reflects the combination of outcomes. All thresholds are parameters.</p>
+
+  <div class="axis-grid-v13">
+    <div class="axis-card-v13">
+      <div class="axis-head-v13 ah-l2">Axis 1 — Team Health · Quarterly</div>
+      <div class="axis-body-v13">
+        <div class="axis-threshold" style="color:var(--blue)">≥ <code>l2_kpi_health_pct</code></div>
+        <p style="margin:6px 0 0;font-size:12px">Default: <strong>60%</strong> of L1 roster at Active or Dormant status at quarter-end. Percentage (not absolute count) — scale-neutral across all roster sizes. Suspended L1s count in denominator for <code>l2_suspended_denominator_quarters</code> quarters then auto-removed.</p>
+      </div>
+    </div>
+    <div class="axis-card-v13">
+      <div class="axis-head-v13 ah-gold">Axis 2 — Development · Quarterly</div>
+      <div class="axis-body-v13">
+        <div class="axis-threshold" style="color:var(--amber)">≥ <code>l2_kpi_dev_min</code></div>
+        <p style="margin:6px 0 0;font-size:12px">Default: <strong>1</strong> qualifying development event per quarter.</p>
+        <div style="margin-top:8px;font-size:12px;color:var(--gray-600)">
+          <span class="or-badge">Qualifying events</span>
+          New L1 who completed probation this quarter <strong>— OR —</strong> existing Dormant L1 restored to Active
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h4>L2 Status Multipliers (Override Rate × Multiplier)</h4>
+  <div class="mult-grid">
+    <div class="mult-card" style="border-top:3px solid var(--green)">
+      <div class="mult-status" style="color:var(--green)">Active</div>
+      <div class="mult-bar-wrap"><div class="mult-bar" style="width:100%;background:var(--green)"></div></div>
+      <div class="mult-pct" style="color:var(--green)"><code>l2_multiplier_active</code><br><small>100%</small></div>
+      <div class="mult-cond">Both axes met</div>
+    </div>
+    <div class="mult-card" style="border-top:3px solid var(--blue)">
+      <div class="mult-status" style="color:var(--blue)">Coasting</div>
+      <div class="mult-bar-wrap"><div class="mult-bar" style="width:75%;background:var(--blue)"></div></div>
+      <div class="mult-pct" style="color:var(--blue)"><code>l2_multiplier_coasting</code><br><small>75%</small></div>
+      <div class="mult-cond">Team healthy, no development event</div>
+    </div>
+    <div class="mult-card" style="border-top:3px solid var(--amber)">
+      <div class="mult-status" style="color:var(--amber)">Developing</div>
+      <div class="mult-bar-wrap"><div class="mult-bar" style="width:60%;background:var(--amber)"></div></div>
+      <div class="mult-pct" style="color:var(--amber)"><code>l2_multiplier_developing</code><br><small>60%</small></div>
+      <div class="mult-cond">Axis 2 met, team health degrading</div>
+    </div>
+    <div class="mult-card" style="border-top:3px solid var(--orange)">
+      <div class="mult-status" style="color:var(--orange)">Dormant</div>
+      <div class="mult-bar-wrap"><div class="mult-bar" style="width:30%;background:var(--orange)"></div></div>
+      <div class="mult-pct" style="color:var(--orange)"><code>l2_multiplier_dormant</code><br><small>30%</small></div>
+      <div class="mult-cond">Both axes missed — 1 quarter</div>
+    </div>
+    <div class="mult-card" style="border-top:3px solid var(--red)">
+      <div class="mult-status" style="color:var(--red)">Suspended</div>
+      <div class="mult-bar-wrap"><div class="mult-bar" style="width:0%;background:var(--red)"></div></div>
+      <div class="mult-pct" style="color:var(--red)"><code>l2_multiplier_suspended</code><br><small>0%</small></div>
+      <div class="mult-cond">Both axes missed — 2 consecutive quarters</div>
+    </div>
+  </div>
+
+  <div class="callout c-ok"><div class="callout-icon">✓</div><div><div class="callout-title">Recovery is instant — no reapplication required</div><div class="callout-text">Meet both axes in the following quarter → override multiplier immediately restored to 100%. No demotion from L2 title — ever, unless voluntary. Suspension freezes the override stream only. Personal residuals from L1-era activations are unaffected by any L2 status change.</div></div></div>
+
+  <h4>L2 Promotion Gate — One-Time Only, Then Irrelevant to KPI</h4>
+  <div class="promo-gate-v13 pg-to-l2">
+    <p style="font-size:12px;color:var(--gray-500);margin-bottom:4px">All three criteria must be met simultaneously. System auto-flags eligibility. Nomination from existing L2 or Admin required.</p>
+    <div class="gate-items">
+      <div class="gate-item">
+        <div class="gate-val" style="color:var(--blue)"><code>l2_promo_min_months_l1</code></div>
+        <div class="gate-label">months at Active L1 status<br><strong>Default: 6 months</strong> (probation excluded)</div>
+      </div>
+      <div class="gate-item">
+        <div class="gate-val" style="color:var(--blue)"><code>l2_promo_min_activations</code></div>
+        <div class="gate-label">cumulative merchant activations as L1<br><strong>Default: 50</strong> — one-time gate only, irrelevant post-promotion</div>
+      </div>
+      <div class="gate-item">
+        <div class="gate-val" style="color:var(--blue)"><code>l2_promo_min_recruits</code></div>
+        <div class="gate-label">L1 agents personally recruited who completed probation<br><strong>Default: 3</strong></div>
+      </div>
+    </div>
+    <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--gray-200);font-size:12px;color:var(--gray-500)">After promotion: all L1-era history is irrelevant. L2 KPI is measured entirely on the two-axis system above.</div>
+  </div>
+
+  <!-- 3.4 L3 KPI -->
+  <h3 id="l3-kpi">3.4 L3 Regional Master — Two-Axis KPI &amp; Status</h3>
+
+  <p>L3 status is evaluated <strong>semi-annually</strong> (every 6 months) — not quarterly. Developing an L1 into an L2 takes a minimum of 6 months; quarterly measurement would create unsustainable promotion pressure.</p>
+
+  <div class="axis-grid-v13">
+    <div class="axis-card-v13">
+      <div class="axis-head-v13 ah-l3">Axis 1 — Team Health · Semi-Annual</div>
+      <div class="axis-body-v13">
+        <div class="axis-threshold" style="color:var(--orange)">≥ <code>l3_kpi_health_pct</code></div>
+        <p style="margin:6px 0 0;font-size:12px">Default: <strong>60%</strong> of L2 roster at Active or <em>Coasting</em> status at period-end. Coasting is acceptable — not all L2s develop simultaneously. Suspended L2s count in denominator for 1 semi-annual period then auto-removed.</p>
+      </div>
+    </div>
+    <div class="axis-card-v13">
+      <div class="axis-head-v13 ah-gold">Axis 2 — Development · Semi-Annual</div>
+      <div class="axis-body-v13">
+        <div class="axis-threshold" style="color:var(--amber)">≥ <code>l3_kpi_dev_min</code></div>
+        <p style="margin:6px 0 0;font-size:12px">Default: <strong>1</strong> qualifying development event per semi-annual period.</p>
+        <div style="margin-top:8px;font-size:12px;color:var(--gray-600)">
+          <span class="or-badge">Qualifying events</span>
+          New L2 promoted within region <strong>— OR —</strong> existing Dormant/Developing L2 restored to Active
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h4>L3 Status Multipliers (same structure as L2, semi-annual measurement)</h4>
+  <div class="mult-grid">
+    <div class="mult-card" style="border-top:3px solid var(--green)">
+      <div class="mult-status" style="color:var(--green)">Active</div>
+      <div class="mult-bar-wrap"><div class="mult-bar" style="width:100%;background:var(--green)"></div></div>
+      <div class="mult-pct" style="color:var(--green)"><code>l3_multiplier_active</code><br><small>100%</small></div>
+      <div class="mult-cond">Both axes met</div>
+    </div>
+    <div class="mult-card" style="border-top:3px solid var(--blue)">
+      <div class="mult-status" style="color:var(--blue)">Coasting</div>
+      <div class="mult-bar-wrap"><div class="mult-bar" style="width:75%;background:var(--blue)"></div></div>
+      <div class="mult-pct" style="color:var(--blue)"><code>l3_multiplier_coasting</code><br><small>75%</small></div>
+      <div class="mult-cond">Region healthy, no new L2 developed</div>
+    </div>
+    <div class="mult-card" style="border-top:3px solid var(--amber)">
+      <div class="mult-status" style="color:var(--amber)">Developing</div>
+      <div class="mult-bar-wrap"><div class="mult-bar" style="width:60%;background:var(--amber)"></div></div>
+      <div class="mult-pct" style="color:var(--amber)"><code>l3_multiplier_developing</code><br><small>60%</small></div>
+      <div class="mult-cond">Axis 2 met, L2 roster degrading</div>
+    </div>
+    <div class="mult-card" style="border-top:3px solid var(--orange)">
+      <div class="mult-status" style="color:var(--orange)">Dormant</div>
+      <div class="mult-bar-wrap"><div class="mult-bar" style="width:30%;background:var(--orange)"></div></div>
+      <div class="mult-pct" style="color:var(--orange)"><code>l3_multiplier_dormant</code><br><small>30%</small></div>
+      <div class="mult-cond">Both axes missed — 1 semi-annual period</div>
+    </div>
+    <div class="mult-card" style="border-top:3px solid var(--red)">
+      <div class="mult-status" style="color:var(--red)">Suspended</div>
+      <div class="mult-bar-wrap"><div class="mult-bar" style="width:0%;background:var(--red)"></div></div>
+      <div class="mult-pct" style="color:var(--red)"><code>l3_multiplier_suspended</code><br><small>0%</small></div>
+      <div class="mult-cond">Both axes missed — 2 consecutive semi-annual periods (= 12 months)</div>
+    </div>
+  </div>
+
+  <h4>L3 Promotion Gate — One-Time Only</h4>
+  <div class="promo-gate-v13 pg-to-l3">
+    <p style="font-size:12px;color:var(--gray-500);margin-bottom:4px">Admin-nominated only. No peer nomination at L3. System auto-flags when all criteria met.</p>
+    <div class="gate-items">
+      <div class="gate-item">
+        <div class="gate-val" style="color:var(--orange)"><code>l3_promo_min_months_l2</code></div>
+        <div class="gate-label">months at Active L2 status<br><strong>Default: 12 months</strong></div>
+      </div>
+      <div class="gate-item">
+        <div class="gate-val" style="color:var(--orange)"><code>l3_promo_min_l2s_built</code></div>
+        <div class="gate-label">L2 coordinators developed from own L1 network<br><strong>Default: 3</strong></div>
+      </div>
+      <div class="gate-item">
+        <div class="gate-val" style="color:var(--orange)"><code>l3_promo_min_active_merchants</code></div>
+        <div class="gate-label">active merchants in network at nomination<br><strong>Default: 1,000</strong></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3.5 TENURE CLOCK -->
+  <h3 id="tenure-clock">3.5 Tenure Clock — The Graduation Mechanic</h3>
+
+  <p>Every L1 agent who joins an L2's team starts a coaching tenure clock. When the clock expires, the L1 <strong>graduates</strong> — exits the L2's team and operates independently under company coordination. This is a designed outcome, known by both parties from day one.</p>
+
+  <div class="tenure-track">
+    <div class="tenure-coaching">Override active — all new merchant activations generate L2 override</div>
+    <div class="tenure-post">Post-graduation</div>
+  </div>
+  <div class="tenure-markers">
+    <span>Day 1</span><span>Year 1</span><span>Year 2</span><span>Year 3</span>
+    <span class="grad">Year <code>l1_l2_tenure_years</code>−1: Warning</span>
+    <span class="grad">Year <code>l1_l2_tenure_years</code>: Graduation</span>
+    <span>Year +1</span>
+  </div>
+
+  <div class="tw"><table>
+    <thead><tr><th>Event</th><th>L1 outcome</th><th>L2 outcome</th></tr></thead>
+    <tbody>
+      <tr><td>Clock starts (L1 joins team)</td><td>Enters L2 team. L2 becomes coordinator.</td><td>Override begins on all merchants this L1 activates from this point.</td></tr>
+      <tr><td>Warning (<code>l1_l2_graduation_warning_months</code> before graduation)</td><td>Notified graduation approaching. Default: 12 months before.</td><td>Dashboard alert: "Plan recruitment to replace this agent's contribution."</td></tr>
+      <tr><td>Graduation (Year <code>l1_l2_tenure_years</code>)</td><td>Exits L2 team. Remains active L1 under company coordination. All personal residuals intact.</td><td>Keeps override on all pre-graduation merchants <strong>forever</strong>. No override on post-graduation new acquisitions.</td></tr>
+      <tr><td>Post-graduation L1 sales</td><td>Earns full L1 commission on new merchants. No L2 in chain.</td><td>No override on new acquisitions. Historical override stream continues indefinitely.</td></tr>
+      <tr><td>L1 promoted before clock expires</td><td>New L2 role. Clock resets under L3.</td><td>Receives <code>l2_promo_bonus_per_l1_promoted</code> (default: Rp 1,500,000) one-time. No ongoing override on new L2's team.</td></tr>
+      <tr><td>Graduated L1 re-recruited by new L2</td><td>Fresh 5-year clock starts. New merchant acquisitions generate override for new L2.</td><td>Original L2's historical override on pre-graduation merchants: unaffected.</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>The same mechanic applies one level up: L2 agents under an L3 have their own <code>l2_l3_tenure_years</code> clock. After graduation, L3 retains override on the L2's pre-graduation merchant base; new acquisitions by the L2's team post-graduation generate no L3 override.</p>
+
+  <div class="callout c-info"><div class="callout-icon">📊</div><div><div class="callout-title">Cohort decay — why L2/L3 can never fully coast</div><div class="callout-text">An L2 who stops recruiting will see override income decline cohort by cohort as agents graduate. An L2 who recruits 2–3 new L1s per year maintains a rolling portfolio. The system makes projected override income visible in the L2 dashboard: "Projected override in 12 months if no new recruitment: Rp X."</div></div></div>
+
+  <!-- 3.6 COMMISSION ENGINE -->
+  <h3 id="commission">3.6 Commission Calculation Engine</h3>
+  <div class="cg">
+    <div class="cc cl1"><div class="ch">▸ Field Agent — L1</div>
+      <div class="cr"><span class="cl">Monthly Y1 (per user/mo)</span><span class="cv" style="color:var(--teal)"><code>l1_monthly_commission_y1_pct</code> × price<br>Default: 40% = Rp 27,600</span></div>
+      <div class="cr"><span class="cl">Monthly Y2</span><span class="cv"><code>l1_monthly_commission_y2_pct</code> × price<br>Default: 30% = Rp 20,700</span></div>
+      <div class="cr"><span class="cl">Monthly Y3</span><span class="cv"><code>l1_monthly_commission_y3_pct</code> × price<br>Default: 20% = Rp 13,800</span></div>
+      <div class="cr"><span class="cl">Annual Y1 at close</span><span class="cv" style="color:var(--teal)"><code>l1_annual_commission_y1_pct</code> × price<br>Default: 30% = Rp 150,000</span></div>
+      <div class="cr"><span class="cl">Annual Y2 renewal</span><span class="cv"><code>l1_annual_commission_y2_pct</code> × price<br>Default: 20% = Rp 100,000</span></div>
+      <div class="cr"><span class="cl">Lifetime Solo (flat, 2 tranches)</span><span class="cv" style="color:var(--amber)"><code>l1_lifetime_solo_commission</code><br>Default: Rp 500,000 (Rp 300K close + Rp 200K day-60)</span></div>
+      <div class="cr"><span class="cl">Lifetime Duo (flat, 2 tranches)</span><span class="cv" style="color:var(--amber)"><code>l1_lifetime_duo_commission</code><br>Default: Rp 700,000</span></div>
+    </div>
+    <div class="cc cl2"><div class="ch">▸ Area Coordinator — L2</div>
+      <div class="cr"><span class="cl">Override on L1 residual</span><span class="cv" style="color:var(--blue)"><code>l2_override_rate</code> × multiplier<br>Default: 15%</span></div>
+      <div class="cr"><span class="cl">Override applies to</span><span class="cv">Residual ONLY — never first-month ★</span></div>
+      <div class="cr"><span class="cl">Area bonus</span><span class="cv">Rp <code>l2_bonus_area_amount</code>/mo if merchants &gt; <code>l2_bonus_area_threshold</code><br>Default: Rp 500,000 / 200 merchants</span></div>
+      <div class="cr"><span class="cl">Growth bonus</span><span class="cv">Rp <code>l2_bonus_growth_amount</code>/mo if net growth ≥ <code>l2_bonus_growth_pct</code> QoQ<br>Default: Rp 300,000 / 10%</span></div>
+      <div class="cr"><span class="cl">Promotion bonus (per L1→L2)</span><span class="cv" style="color:var(--amber)"><code>l2_promo_bonus_per_l1_promoted</code><br>Default: Rp 1,500,000 one-time</span></div>
+      <div class="cr"><span class="cl">Own activations</span><span class="cv">Full L1 rate — not affected by L2 status</span></div>
+      <div class="cr"><span class="cl">Est. income at scale</span><span class="cv" style="color:var(--blue)">Rp 8–12 jt/mo</span></div>
+    </div>
+    <div class="cc cl3"><div class="ch">▸ Regional Master — L3</div>
+      <div class="cr"><span class="cl">Override on L2 override earnings</span><span class="cv" style="color:var(--orange)"><code>l3_override_rate</code> × multiplier<br>Default: 10%</span></div>
+      <div class="cr"><span class="cl">Override applies to</span><span class="cv">L2 override ONLY — not L1 direct ★</span></div>
+      <div class="cr"><span class="cl">Regional bonus</span><span class="cv">Rp <code>l3_bonus_region_amount</code>/mo if merchants &gt; <code>l3_bonus_region_threshold</code><br>Default: Rp 2,000,000 / 2,000 merchants</span></div>
+      <div class="cr"><span class="cl">Annual milestone</span><span class="cv">Rp <code>l3_bonus_annual_amount</code> if merchants &gt; <code>l3_bonus_annual_threshold</code><br>Default: Rp 10,000,000 / 5,000 merchants</span></div>
+      <div class="cr"><span class="cl">Growth bonus</span><span class="cv">Rp <code>l3_bonus_growth_amount</code>/mo if net growth ≥ <code>l3_bonus_growth_pct</code> semi-annual<br>Default: Rp 1,000,000 / 10%</span></div>
+      <div class="cr"><span class="cl">Promotion bonus (per L2→L3)</span><span class="cv" style="color:var(--amber)"><code>l3_promo_bonus_per_l2_promoted</code><br>Default: Rp 3,000,000 one-time</span></div>
+      <div class="cr"><span class="cl">Est. income at scale</span><span class="cv" style="color:var(--orange)">Rp 15–20 jt/mo</span></div>
+    </div>
+  </div>
+  <div class="callout c-info"><div class="callout-icon">★</div><div><div class="callout-title">Override Rule — Critical Design Constraint</div><div class="callout-text">Upper-tier overrides apply to <strong>residual commission only</strong> — never to first-month or closing commission. This prevents rewarding ghost activations up the chain. Override only flows while the L1 is within their tenure clock and generating new merchant acquisitions that are within the coaching period.</div></div></div>
+
+  <h4>Payout Requirements</h4>
+  <ul>
+    <li><strong>Cycle:</strong> Weekly (Friday) via GoPay/OVO/DANA, or monthly via bank transfer — agent's choice at enrollment</li>
+    <li><strong>Minimum threshold:</strong> <code>payout_minimum_threshold</code> (default: Rp 50,000) — held until reached</li>
+    <li><strong>Statement:</strong> Itemized PDF commission statement via WhatsApp every payout cycle</li>
+    <li><strong>Tax:</strong> PPh 21 withholding auto-calculated for commission above <code>pph21_threshold</code> (default: Rp 4,500,000)/month</li>
+    <li><strong>Disputes:</strong> <code>payout_dispute_window_days</code> (default: 7)-day dispute window via in-app messaging after each payout</li>
+  </ul>
+
+  <!-- 3.7 PARAMETER REGISTRY -->
+  <h3 id="param-registry">3.7 Parameter Registry</h3>
+  <p>All parameters below are editable in Admin Console → Settings → Agent Parameters. Changes are future-dated, audit-logged, and support regional overrides. Growth bonus thresholds (<code>l2_bonus_growth_pct</code>, <code>l3_bonus_growth_pct</code>) require active management per region maturity and product lifecycle phase.</p>
+
+  <div class="param-block">
+    <div class="param-block-head pbh-shared">⏱ Tenure Clock Parameters</div>
+    <div class="param-row"><div class="param-key">l1_l2_tenure_years</div><div class="param-default">5</div><div class="param-desc">Years of L1 coaching tenure under L2. After this, L1 graduates. Override on existing merchants continues; new acquisitions excluded.</div></div>
+    <div class="param-row"><div class="param-key">l2_l3_tenure_years</div><div class="param-default">5</div><div class="param-desc">Years of L2 coaching tenure under L3. Same mechanic, one level up. Separately configurable.</div></div>
+    <div class="param-row"><div class="param-key">l1_l2_graduation_warning_months</div><div class="param-default">12</div><div class="param-desc">Months before graduation that system alerts L2 and L1.</div></div>
+    <div class="param-row"><div class="param-key">l2_l3_graduation_warning_months</div><div class="param-default">12</div><div class="param-desc">Same warning mechanic for L2 graduating from L3 team.</div></div>
+    <div class="param-row"><div class="param-key">tenure_clock_applies_to_existing</div><div class="param-default">false</div><div class="param-desc">Whether clock applies retroactively to L1s already in teams at rule launch. Recommended false for Wave 1 — apply to new enrollments only.</div></div>
+  </div>
+
+  <div class="param-block">
+    <div class="param-block-head pbh-l1">▸ L1 — Enrollment &amp; Status Parameters</div>
+    <div class="param-row"><div class="param-key">l1_probation_months</div><div class="param-default">3</div><div class="param-desc">Duration of probation period in months</div></div>
+    <div class="param-row"><div class="param-key">l1_commitment_fee</div><div class="param-default">Rp 100,000</div><div class="param-desc">One-time fee at end of probation. Unlocks Active status.</div></div>
+    <div class="param-row"><div class="param-key">l1_fee_waiver_extra_activations</div><div class="param-default">3</div><div class="param-desc">Extra activations above minimum in final probation month to waive fee</div></div>
+    <div class="param-row"><div class="param-key">l1_escrow_forfeiture_days</div><div class="param-default">30</div><div class="param-desc">Days after probation end before escrowed earnings are forfeited if fee unpaid</div></div>
+    <div class="param-row"><div class="param-key">l1_active_min_activations</div><div class="param-default">3</div><div class="param-desc">Minimum new activations per quarter to maintain Active status</div></div>
+    <div class="param-row"><div class="param-key">l1_dormant_min_activations</div><div class="param-default">1</div><div class="param-desc">Minimum activations per quarter to be classified as Dormant (not Inactive)</div></div>
+    <div class="param-row"><div class="param-key">l1_dormant_warning_week</div><div class="param-default">10</div><div class="param-desc">Week of quarter at which Dormant warning is sent to agent</div></div>
+    <div class="param-row"><div class="param-key">l1_dormant_residual_pct</div><div class="param-default">50</div><div class="param-desc">Residual percentage paid to Dormant agents</div></div>
+    <div class="param-row"><div class="param-key">l1_inactive_residual_pct</div><div class="param-default">25</div><div class="param-desc">Residual percentage paid to Inactive agents</div></div>
+    <div class="param-row"><div class="param-key">l1_lifetime_conversion_cap_pct</div><div class="param-default">20</div><div class="param-desc">Max percentage of active monthly user base convertible to lifetime per agent per quarter (anti-exit gaming)</div></div>
+    <div class="param-row"><div class="param-key">l1_ownership_transfer_quarters</div><div class="param-default">1</div><div class="param-desc">Quarters at Suspended status before merchant ownership becomes transferable</div></div>
+    <div class="param-row"><div class="param-key">finder_fee_amount</div><div class="param-default">Rp 15,000–20,000</div><div class="param-desc">One-time fee paid to agent who renews another agent's merchant. Does not transfer ownership.</div></div>
+  </div>
+
+  <div class="param-block">
+    <div class="param-block-head pbh-l1">▸ L1 — Commission Parameters</div>
+    <div class="param-row"><div class="param-key">l1_monthly_commission_y1_pct</div><div class="param-default">40</div><div class="param-desc">Monthly tier residual percentage, Year 1</div></div>
+    <div class="param-row"><div class="param-key">l1_monthly_commission_y2_pct</div><div class="param-default">30</div><div class="param-desc">Monthly tier residual percentage, Year 2</div></div>
+    <div class="param-row"><div class="param-key">l1_monthly_commission_y3_pct</div><div class="param-default">20</div><div class="param-desc">Monthly tier residual percentage, Year 3+</div></div>
+    <div class="param-row"><div class="param-key">l1_annual_commission_y1_pct</div><div class="param-default">30</div><div class="param-desc">Annual tier commission percentage at closing, Year 1</div></div>
+    <div class="param-row"><div class="param-key">l1_annual_commission_y2_pct</div><div class="param-default">20</div><div class="param-desc">Annual tier commission percentage at renewal, Year 2</div></div>
+    <div class="param-row"><div class="param-key">l1_lifetime_solo_commission</div><div class="param-default">Rp 500,000</div><div class="param-desc">Flat commission for Lifetime Solo. 2 tranches: Rp 300,000 at closing + Rp 200,000 if still active at day 60.</div></div>
+    <div class="param-row"><div class="param-key">l1_lifetime_duo_commission</div><div class="param-default">Rp 700,000</div><div class="param-desc">Flat commission for Lifetime Duo. Same 2-tranche structure.</div></div>
+  </div>
+
+  <div class="param-block">
+    <div class="param-block-head pbh-l2">⬡ L2 — Promotion Gate Parameters</div>
+    <div class="param-row"><div class="param-key">l2_promo_min_months_l1</div><div class="param-default">6</div><div class="param-desc">Minimum months at Active L1 status before L2 eligibility (probation excluded)</div></div>
+    <div class="param-row"><div class="param-key">l2_promo_min_activations</div><div class="param-default">50</div><div class="param-desc">Cumulative merchant activations as L1. One-time gate only — irrelevant after promotion.</div></div>
+    <div class="param-row"><div class="param-key">l2_promo_min_recruits</div><div class="param-default">3</div><div class="param-desc">L1 agents personally recruited who reached Active status</div></div>
+  </div>
+
+  <div class="param-block">
+    <div class="param-block-head pbh-l2">⬡ L2 — KPI &amp; Roster Parameters</div>
+    <div class="param-row"><div class="param-key">l2_kpi_period</div><div class="param-default">Quarterly</div><div class="param-desc">Measurement period for L2 KPI axes</div></div>
+    <div class="param-row"><div class="param-key">l2_kpi_health_pct</div><div class="param-default">60</div><div class="param-desc">Axis 1: minimum % of L1 roster at Active or Dormant status</div></div>
+    <div class="param-row"><div class="param-key">l2_kpi_dev_min</div><div class="param-default">1</div><div class="param-desc">Axis 2: minimum qualifying development events per quarter</div></div>
+    <div class="param-row"><div class="param-key">l2_roster_soft_cap</div><div class="param-default">15</div><div class="param-desc">L1 agents per L2 before "At Capacity" badge. Not a hard block.</div></div>
+    <div class="param-row"><div class="param-key">l2_roster_warning_threshold</div><div class="param-default">13</div><div class="param-desc">L1 count at which "Roster Warning" badge appears in dashboard</div></div>
+    <div class="param-row"><div class="param-key">l2_suspended_denominator_quarters</div><div class="param-default">1</div><div class="param-desc">Quarters a Suspended L1 remains in team health denominator before auto-removal</div></div>
+  </div>
+
+  <div class="param-block">
+    <div class="param-block-head pbh-l2">⬡ L2 — Status Multipliers</div>
+    <div class="param-row"><div class="param-key">l2_multiplier_active</div><div class="param-default">100</div><div class="param-desc">Override multiplier % — both axes met</div></div>
+    <div class="param-row"><div class="param-key">l2_multiplier_coasting</div><div class="param-default">75</div><div class="param-desc">Override multiplier % — team healthy, no development event</div></div>
+    <div class="param-row"><div class="param-key">l2_multiplier_developing</div><div class="param-default">60</div><div class="param-desc">Override multiplier % — developing, but team health degrading</div></div>
+    <div class="param-row"><div class="param-key">l2_multiplier_dormant</div><div class="param-default">30</div><div class="param-desc">Override multiplier % — both axes missed 1 quarter</div></div>
+    <div class="param-row"><div class="param-key">l2_multiplier_suspended</div><div class="param-default">0</div><div class="param-desc">Override multiplier % — both axes missed 2 consecutive quarters</div></div>
+  </div>
+
+  <div class="param-block">
+    <div class="param-block-head pbh-l2">⬡ L2 — Income Parameters</div>
+    <div class="param-row"><div class="param-key">l2_override_rate</div><div class="param-default">15</div><div class="param-desc">Override percentage on L1 residual commission (before status multiplier)</div></div>
+    <div class="param-row"><div class="param-key">l2_bonus_area_threshold</div><div class="param-default">200</div><div class="param-desc">Active merchant count in area to trigger monthly area bonus</div></div>
+    <div class="param-row"><div class="param-key">l2_bonus_area_amount</div><div class="param-default">Rp 500,000</div><div class="param-desc">Monthly area bonus amount</div></div>
+    <div class="param-row"><div class="param-key">l2_bonus_growth_pct</div><div class="param-default">10</div><div class="param-desc">QoQ net active merchant growth rate to trigger growth bonus. Adjust per region maturity and product phase.</div></div>
+    <div class="param-row"><div class="param-key">l2_bonus_growth_amount</div><div class="param-default">Rp 300,000</div><div class="param-desc">Monthly growth bonus amount</div></div>
+    <div class="param-row"><div class="param-key">l2_promo_bonus_per_l1_promoted</div><div class="param-default">Rp 1,500,000</div><div class="param-desc">One-time bonus when a recruited L1 achieves L2 promotion. Monitor: if organic L2 promotions are rare, increase this amount.</div></div>
+  </div>
+
+  <div class="param-block">
+    <div class="param-block-head pbh-l3">⬢ L3 — Promotion Gate Parameters</div>
+    <div class="param-row"><div class="param-key">l3_promo_min_months_l2</div><div class="param-default">12</div><div class="param-desc">Minimum months at Active L2 status before L3 eligibility</div></div>
+    <div class="param-row"><div class="param-key">l3_promo_min_l2s_built</div><div class="param-default">3</div><div class="param-desc">L2 coordinators developed from within this person's network</div></div>
+    <div class="param-row"><div class="param-key">l3_promo_min_active_merchants</div><div class="param-default">1000</div><div class="param-desc">Active merchants across all L1s in network at time of nomination</div></div>
+  </div>
+
+  <div class="param-block">
+    <div class="param-block-head pbh-l3">⬢ L3 — KPI &amp; Roster Parameters</div>
+    <div class="param-row"><div class="param-key">l3_kpi_period</div><div class="param-default">Semi-annual</div><div class="param-desc">Measurement period for L3 KPI axes (longer than L2 to match L2 development timeline)</div></div>
+    <div class="param-row"><div class="param-key">l3_kpi_health_pct</div><div class="param-default">60</div><div class="param-desc">Axis 1: minimum % of L2 roster at Active or Coasting status</div></div>
+    <div class="param-row"><div class="param-key">l3_kpi_dev_min</div><div class="param-default">1</div><div class="param-desc">Axis 2: qualifying development events per semi-annual period</div></div>
+    <div class="param-row"><div class="param-key">l3_roster_soft_cap</div><div class="param-default">8</div><div class="param-desc">L2 coordinators per L3 before "At Capacity" badge</div></div>
+    <div class="param-row"><div class="param-key">l3_roster_warning_threshold</div><div class="param-default">7</div><div class="param-desc">L2 count at which "Roster Warning" appears</div></div>
+  </div>
+
+  <div class="param-block">
+    <div class="param-block-head pbh-l3">⬢ L3 — Status Multipliers</div>
+    <div class="param-row"><div class="param-key">l3_multiplier_active</div><div class="param-default">100</div><div class="param-desc">Override multiplier % — both axes met</div></div>
+    <div class="param-row"><div class="param-key">l3_multiplier_coasting</div><div class="param-default">75</div><div class="param-desc">Override multiplier % — region healthy, no new L2 developed</div></div>
+    <div class="param-row"><div class="param-key">l3_multiplier_developing</div><div class="param-default">60</div><div class="param-desc">Override multiplier % — developing, L2 roster degrading</div></div>
+    <div class="param-row"><div class="param-key">l3_multiplier_dormant</div><div class="param-default">30</div><div class="param-desc">Override multiplier % — both axes missed 1 semi-annual period</div></div>
+    <div class="param-row"><div class="param-key">l3_multiplier_suspended</div><div class="param-default">0</div><div class="param-desc">Override multiplier % — both axes missed 2 consecutive semi-annual periods</div></div>
+  </div>
+
+  <div class="param-block">
+    <div class="param-block-head pbh-l3">⬢ L3 — Income Parameters</div>
+    <div class="param-row"><div class="param-key">l3_override_rate</div><div class="param-default">10</div><div class="param-desc">Override percentage on L2 override earnings (before status multiplier)</div></div>
+    <div class="param-row"><div class="param-key">l3_bonus_region_threshold</div><div class="param-default">2000</div><div class="param-desc">Active merchants to trigger monthly regional bonus</div></div>
+    <div class="param-row"><div class="param-key">l3_bonus_region_amount</div><div class="param-default">Rp 2,000,000</div><div class="param-desc">Monthly regional bonus amount</div></div>
+    <div class="param-row"><div class="param-key">l3_bonus_annual_threshold</div><div class="param-default">5000</div><div class="param-desc">Active merchants for one-time annual milestone bonus</div></div>
+    <div class="param-row"><div class="param-key">l3_bonus_annual_amount</div><div class="param-default">Rp 10,000,000</div><div class="param-desc">One-time annual milestone bonus</div></div>
+    <div class="param-row"><div class="param-key">l3_bonus_growth_pct</div><div class="param-default">10</div><div class="param-desc">Semi-annual net growth rate for growth bonus. Adjust per region and lifecycle phase.</div></div>
+    <div class="param-row"><div class="param-key">l3_bonus_growth_amount</div><div class="param-default">Rp 1,000,000</div><div class="param-desc">Monthly growth bonus amount during qualifying periods</div></div>
+    <div class="param-row"><div class="param-key">l3_promo_bonus_per_l2_promoted</div><div class="param-default">Rp 3,000,000</div><div class="param-desc">One-time bonus when a developed L2 achieves L3 promotion</div></div>
+  </div>
+
+  <div class="param-block">
+    <div class="param-block-head pbh-shared">⚙ Shared Payout Parameters</div>
+    <div class="param-row"><div class="param-key">payout_minimum_threshold</div><div class="param-default">Rp 50,000</div><div class="param-desc">Minimum payout balance before disbursement is triggered</div></div>
+    <div class="param-row"><div class="param-key">pph21_threshold</div><div class="param-default">Rp 4,500,000</div><div class="param-desc">Monthly commission threshold above which PPh 21 withholding is auto-calculated</div></div>
+    <div class="param-row"><div class="param-key">payout_dispute_window_days</div><div class="param-default">7</div><div class="param-desc">Days after payout during which agent may raise a dispute</div></div>
+  </div>
+
+  <!-- 3.8 TRACKING (unchanged from v1.2) -->
+  <h3 id="tracking">3.8 Location &amp; Activity Tracking</h3>
+  <ul>
+    <li>Location logged <strong>at code generation only</strong> — event-based, not continuous</li>
+    <li>Data retained 90 days, then anonymized to kecamatan level</li>
+    <li>Admin: heatmap of activity density by kecamatan. L2: team's last-active locations, updated daily</li>
+    <li><strong>Geographic density data NOT exposed to agents</strong> — withheld until post-2M users to protect cold acquisition motivation (Phase 3)</li>
+  </ul>
+
+</div>
+
+
+<!-- S4 -->
+<div class="section" id="s4">
+  <div class="section-header"><span class="sec-num">SECTION 04</span><h2>User Interface Specifications</h2></div>
+
+  <h3 id="agentapp">4A — Agent Mobile App (PWA)</h3>
+  <p><strong>Platform:</strong> Progressive Web App, installable on Android 8+, 2GB RAM minimum. Offline-tolerant — core functions queue offline and sync on reconnection.</p>
+  <h4>Home Dashboard</h4>
+  <ul>
+    <li>Agent name, current status badge, today's activation count vs personal daily target</li>
+    <li>Quarter activations vs minimum threshold — color-coded progress bar (green/amber/red)</li>
+    <li>Estimated commission earned this month in real-time</li>
+    <li>Residual income projection: estimated monthly income from existing base with zero new sales</li>
+    <li>Quick actions: Generate Code | My Merchants | Notifications</li>
+  </ul>
+  <h4>Generate Subscription Code</h4>
+  <ul>
+    <li>Step 1: Select tier (Monthly / Annual / Lifetime Solo / Lifetime Duo)</li>
+    <li>Step 2: Optional merchant details (name, phone, business type)</li>
+    <li>Step 3: Confirm payment (QRIS scan in-app or manual cash confirmation)</li>
+    <li>Step 4: Code displayed with Copy button. Agent manually shares to merchant (clipboard copy). WhatsApp deep-link share button deferred to Phase 2.</li>
+    <li>Duo flow: Code 1 displayed immediately. Prompt for second merchant phone before Code 2 released. Countdown timer shows 24/48h expiry.</li>
+  </ul>
+  <h4>My Merchants</h4>
+  <ul>
+    <li>All activated merchants with status: Active (green) / Expiring soon (amber) / Lapsed (red)</li>
+    <li>Tap merchant: tier, days remaining, commission earned, one-tap renewal reminder (creates in-app follow-up task). WhatsApp direct message shortcut deferred to Phase 2.</li>
+  </ul>
+  <h4>Earnings</h4>
+  <ul>
+    <li>Commission breakdown by tier and period. Payout history. Escrow balance for probation agents.</li>
+    <li>Passive income projection from current active user base</li>
+  </ul>
+
+  <h3 id="coordportal">4B — Coordinator &amp; Regional Portal (Web)</h3>
+  <p><strong>Target:</strong> L2 Area Coordinators and L3 Regional Masters. Desktop-first, responsive mobile view.</p>
+  <ul>
+    <li>Team summary cards: active users, activations MTD, agent counts by status, territory revenue MTD</li>
+    <li>Agent performance table: name, status, activations this quarter, active merchants, commission, last activity</li>
+    <li>Traffic light per agent: green = on track, amber = approaching dormant, red = at risk</li>
+    <li>Geographic heatmap: activation density in territory. Underserved kecamatan highlighted (&lt;5 active merchants).</li>
+    <li>Agent last-known-location markers (event-based, daily update)</li>
+    <li>Team broadcast messaging + direct messaging to individual agents</li>
+    <li>Recommend agent for L2 promotion (submitted to Admin for approval)</li>
+    <li><strong>L3 additional:</strong> Coordinator performance table, regional progress toward 2K/5K user bonus thresholds, override earnings breakdown</li>
+  </ul>
+
+  <h3 id="adminconsole">4C — Admin Console (Web, Internal)</h3>
+  <p><strong>Target:</strong> Sell More internal team. Role-based access: super admin / finance admin / ops admin.</p>
+  <h4>System Overview</h4>
+  <ul>
+    <li>Real-time KPIs: total active subscribers, activations today/MTD/YTD, MRR, churn rate, active agents</li>
+    <li>Geographic penetration map by kecamatan. Cohort retention curves by activation month.</li>
+  </ul>
+  <h4>Pricing Management</h4>
+  <ul>
+    <li>Edit any tier price with effective date (future-dated changes supported)</li>
+    <li>Tier visibility per channel. Decoy order: drag-and-drop display sequence. Commission rate editor with audit trail.</li>
+  </ul>
+  <h4>Agent Management</h4>
+  <ul>
+    <li>Approval queue. Bulk status view with filters. Manual status override with reason logging.</li>
+    <li>Promote L1→L2: set reporting L3, assign territory. Promote L2→L3: set regional boundary.</li>
+    <li>Commission adjustment with mandatory reason + audit log. Agent location heatmap all regions.</li>
+  </ul>
+  <h4>Code &amp; License Management</h4>
+  <ul>
+    <li>All codes: unused / active / expired / revoked. Revoke any code with reason log.</li>
+    <li>Batch generate gift card codes. Retail voucher inventory per distribution point.</li>
+  </ul>
+  <h4>Financial Reports</h4>
+  <ul>
+    <li>Revenue by tier, channel, region, period. Commission payout summary and detail. PPh 21 report.</li>
+    <li>Export: CSV, PDF, Excel for all reports.</li>
+  </ul>
+</div>
+
+<!-- S5 -->
+<div class="section" id="s5">
+  <div class="section-header"><span class="sec-num">SECTION 05</span><h2>Faceless API / SDK</h2></div>
+  <p>Integration layer between Sell More app and SMSP backend. Called only at specific lifecycle events. App operates fully offline between API calls.</p>
+  <div class="ep"><div class="method">POST</div><div><div class="eppath">/activate</div><div class="epdesc">User enters subscription code. Validates, marks used, returns encrypted license payload.</div><div class="eppar"><span class="epp">code</span><span class="epp">device_id</span><span class="epp">install_timestamp</span></div></div></div>
+  <div class="ep"><div class="method">POST</div><div><div class="eppath">/validate</div><div class="epdesc">First-run on new device. Returns trial config and available self-serve tiers for this region.</div><div class="eppar"><span class="epp">device_id</span><span class="epp">app_version</span><span class="epp">region</span></div></div></div>
+  <div class="ep"><div class="method">POST</div><div><div class="eppath">/renew</div><div class="epdesc">User completes self-serve QRIS payment. Returns new license payload and expiry date.</div><div class="eppar"><span class="epp">device_id</span><span class="epp">payment_ref</span><span class="epp">tier_selected</span></div></div></div>
+  <div class="ep"><div class="method">POST</div><div><div class="eppath">/backup-auth</div><div class="epdesc">User initiates Google Drive backup. Issues short-lived JWT for Google API authorization.</div><div class="eppar"><span class="epp">device_id</span><span class="epp">license_hash</span></div></div></div>
+  <div class="ep"><div class="method">POST</div><div><div class="eppath">/report-event</div><div class="epdesc">Fire-and-forget milestone events. Powers Day 3, Day 7, Day 30 retention notifications.</div><div class="eppar"><span class="epp">device_id</span><span class="epp">event_type</span><span class="epp">event_timestamp</span></div></div></div>
+  <div class="ep"><div class="method mget">GET</div><div><div class="eppath">/promos</div><div class="epdesc">Called when app opens payment screen. Returns active promotions applicable to this device and region.</div><div class="eppar"><span class="epp">device_id</span><span class="epp">region</span><span class="epp">current_tier</span></div></div></div>
+  <div class="ep"><div class="method">POST</div><div><div class="eppath">/verify-agent</div><div class="epdesc">Agent App login. Verifies OTP, returns agent profile, permissions, and auth token.</div><div class="eppar"><span class="epp">phone</span><span class="epp">otp</span></div></div></div>
+  <div class="ep"><div class="method">POST</div><div><div class="eppath">/generate-code</div><div class="epdesc">Agent generates code after payment confirmation. Returns code(s) and QR image URL.</div><div class="eppar"><span class="epp">auth_token</span><span class="epp">tier</span><span class="epp">quantity</span><span class="epp">payment_confirmed</span></div></div></div>
+
+  <h3>License Payload Structure</h3>
+  <div class="tw"><table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>license_id</td><td><code>UUID</code></td><td>Unique identifier for this license instance</td></tr>
+      <tr><td>device_id</td><td><code>String</code></td><td>Device fingerprint — not transferable without re-activation</td></tr>
+      <tr><td>tier</td><td><code>Enum</code></td><td>daily | weekly | monthly | annual | lifetime</td></tr>
+      <tr><td>activated_at</td><td><code>ISO8601</code></td><td>Timestamp of activation</td></tr>
+      <tr><td>expires_at</td><td><code>ISO8601 | null</code></td><td>Null for lifetime licenses</td></tr>
+      <tr><td>credit_days</td><td><code>Integer</code></td><td>Remaining days of credit (daily/weekly tiers)</td></tr>
+      <tr><td>grace_period_days</td><td><code>Integer</code></td><td>Days offline before cashier blocked (default: 3)</td></tr>
+      <tr><td>signature</td><td><code>HMAC-SHA256</code></td><td>Server-signed hash to prevent local tampering</td></tr>
+      <tr><td>agent_id</td><td><code>UUID | null</code></td><td>Agent who activated. Null for self-serve.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout c-ok"><div class="callout-icon">🔓</div><div><div class="callout-title">License Enforcement on Expiry</div><div class="callout-text">On expiry: <strong>Admin login remains fully functional. All reports accessible. Cashier login blocked only.</strong> Owner sees their data and feels the value they are about to lose. Expiry message framing: "Your 847 transactions are saved — activate subscription to continue recording."</div></div></div>
+</div>
+
+<!-- S6 -->
+<div class="section" id="s6">
+  <div class="section-header"><span class="sec-num">SECTION 06</span><h2>In-Platform Messaging Module</h2></div>
+  <p><strong>Phase 1:</strong> In-platform notification bell delivering system-generated alerts to agents. No external messaging dependency. <strong>Phase 2:</strong> Full in-app messaging (direct messages, team broadcasts, voice notes). WhatsApp Business API fallback for agents inactive &gt;24h added in Phase 2.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Channel Type</th><th>Created By</th><th>Visible To</th><th>Use Case</th></tr></thead>
+    <tbody>
+      <tr><td>Direct Message</td><td>Any agent to any within their hierarchy</td><td>Sender + recipient</td><td>Agent to coordinator: activation issue, merchant problem</td></tr>
+      <tr><td>Team Broadcast</td><td>L2 Coordinator</td><td>All L1s in their team</td><td>Promo announcement, target reminder, motivation</td></tr>
+      <tr><td>Regional Broadcast</td><td>L3 Regional Master</td><td>All L2s in region</td><td>Regional campaign, performance update</td></tr>
+      <tr><td>Admin Broadcast</td><td>Admin Console</td><td>All agents or filtered subset</td><td>Product updates, promo launch, policy changes</td></tr>
+      <tr><td>System Notifications</td><td>Platform (automated)</td><td>Target agent/coordinator</td><td>Status changes, payout alerts, code expiry warnings</td></tr>
+    </tbody>
+  </table></div>
+  <h4>Core Features</h4>
+  <ul>
+    <li><strong>Phase 2:</strong> Text with emoji, image attachments, PDF attachments</li>
+    <li><strong>Phase 3:</strong> Voice messages (important for agents who prefer speaking over typing)</li>
+    <li>Read receipts, quoted reply, message search within conversation</li>
+    <li>Hierarchy enforcement: cross-hierarchy messaging blocked (L1 in Region A cannot message L1 in Region B)</li>
+    <li><strong>Phase 2:</strong> WhatsApp fallback — if agent has not opened app in 24h, message delivered to registered WhatsApp as plain text</li>
+  </ul>
+  <h4>Automated System Messages</h4>
+  <ul>
+    <li>Commission payout notification with link to full PDF statement</li>
+    <li>Status change: <em>"Status Anda berubah ke Dormant — butuh 2 aktivasi lagi bulan ini"</em></li>
+    <li>Code expiry: <em>"Kode duo yang Anda buat kedaluwarsa dalam 4 jam"</em></li>
+    <li>Merchant lapse alert: <em>"Pelanggan Anda [Warung Padang Bu Sari] berakhir 3 hari lagi"</em></li>
+  </ul>
+</div>
+
+<!-- S7 -->
+<div class="section" id="s7">
+  <div class="section-header"><span class="sec-num">SECTION 07</span><h2>Non-Functional Requirements</h2></div>
+  <div class="tw"><table>
+    <thead><tr><th>Category</th><th>Metric</th><th>Requirement</th></tr></thead>
+    <tbody>
+      <tr><td>Performance</td><td>API response time</td><td>&lt;500ms activation and validation endpoints (p95)</td></tr>
+      <tr><td>Performance</td><td>Code generation</td><td>&lt;2 seconds from payment confirmation to code display</td></tr>
+      <tr><td>Performance</td><td>Concurrent agents</td><td>50,000 simultaneous agent app sessions at peak</td></tr>
+      <tr><td>Security</td><td>License integrity</td><td>HMAC-SHA256 signed payload — prevents local tampering</td></tr>
+      <tr><td>Security</td><td>Agent auth — Phase 1</td><td>Username + password. JWT session token. No external provider dependency.</td></tr>
+      <tr><td>Security</td><td>Agent auth — Phase 2</td><td>Phone OTP replaces password login. Optional PIN for repeat sessions.</td></tr>
+      <tr><td>Security</td><td>Admin Console — Phase 1</td><td>IP whitelist + strong password (min 16 chars, enforced). Role-based access: super_admin / finance_admin / ops_admin.</td></tr>
+      <tr><td>Security</td><td>Admin Console — Phase 2</td><td>2FA added (TOTP). IP whitelist retained.</td></tr>
+      <tr><td>Availability</td><td>API uptime</td><td>99.5% monthly — app continues offline during downtime</td></tr>
+      <tr><td>Availability</td><td>Agent App uptime</td><td>99.9% — agent revenue depends on code generation</td></tr>
+      <tr><td>Scalability</td><td>Architecture</td><td>Stateless API servers, horizontal scaling, DB sharded by region</td></tr>
+      <tr><td>Compliance</td><td>Data residency</td><td>All data in Indonesian data centers (Kominfo compliance)</td></tr>
+      <tr><td>Compliance</td><td>Payments</td><td>QRIS via licensed gateway (Midtrans or Xendit)</td></tr>
+      <tr><td>Compliance</td><td>Tax</td><td>PPh 21 withholding auto-calculated per DJP regulations</td></tr>
+      <tr><td>Compliance</td><td>Privacy</td><td>UU PDP (Personal Data Protection Law) compliant</td></tr>
+    </tbody>
+  </table></div>
+</div>
+
+<!-- S8 -->
+<div class="section" id="s8">
+  <div class="section-header"><span class="sec-num">SECTION 08</span><h2>External Integration Dependencies</h2></div>
+  <div class="tw"><table>
+    <thead><tr><th>Integration</th><th>Purpose</th><th>Provider Options</th><th>Phase</th></tr></thead>
+    <tbody>
+      <tr><td>QRIS Payment Gateway</td><td>Self-serve subscription payment, agent code payment confirmation</td><td>Midtrans, Xendit, Doku</td><td><span class="badge bg">Phase 1</span></td></tr>
+      <tr><td>Google Drive API</td><td>Issue backup tokens to authenticated Sell More app devices</td><td>Google Cloud</td><td><span class="badge bg">Phase 1</span></td></tr>
+      <tr><td>GoPay / OVO / DANA</td><td>Agent commission payout disbursement</td><td>Midtrans Iris, Xendit Disbursement</td><td><span class="badge bg">Phase 1</span></td></tr>
+      <tr><td>Maps / Geocoding</td><td>Agent location heatmap, kecamatan boundary display in dashboards</td><td>OpenStreetMap + Leaflet (primary). Google Maps optional.</td><td><span class="badge bg">Phase 1</span></td></tr>
+      <tr><td>Firebase Cloud Messaging</td><td>In-app push notifications to Sell More POS app (Day 3/7/30 retention events). Agent App in-app notification bell.</td><td>Firebase Cloud Messaging</td><td><span class="badge bg">Phase 1</span></td></tr>
+      <tr><td>Google Calendar API</td><td>Daily sales report calendar event for merchant admin accounts</td><td>Google Cloud</td><td><span class="badge bb">Phase 2</span></td></tr>
+      <tr><td>WhatsApp Business API</td><td>Commission statements, status alerts, code delivery, merchant renewal reminders — WhatsApp fallback for inactive agents</td><td>Twilio, Wati, Zoko</td><td><span class="badge bb">Phase 2</span></td></tr>
+      <tr><td>SMS Gateway</td><td>OTP delivery for agent authentication (replaces password login in Phase 2)</td><td>Twilio, Vonage, local Indonesian providers</td><td><span class="badge bb">Phase 2</span></td></tr>
+      <tr><td>PPh 21 / DJP Integration</td><td>Automated tax withholding reporting per DJP regulations</td><td>DJP API or manual export</td><td><span class="badge bp">Phase 3</span></td></tr>
+    </tbody>
+  </table></div>
+</div>
+
+<!-- S9 -->
+<div class="section" id="s9">
+  <div class="section-header"><span class="sec-num">SECTION 09</span><h2>Phased Delivery Roadmap</h2></div>
+  <div class="pg">
+    <div class="pc p1"><div class="ph"><div class="plabel">Phase 1 — MVP</div><div class="ptitle">Wave 1 Launch</div><div class="ptarget">200–300 agents · up to 50K users</div></div><div class="pb"><div class="pi">Agent App: code generation, merchant list, earnings, username/password auth</div><div class="pi">Admin Console: agent approval, code management, basic pricing config</div><div class="pi">API/SDK: activate, validate, renew, backup-auth endpoints</div><div class="pi">Commission Engine: L1 only, weekly payout via e-wallet</div><div class="pi">All 6 pricing tiers + basic promo code support</div><div class="pi">Notifications: in-app notification bell only. No external messaging provider.</div></div></div>
+    <div class="pc p2"><div class="ph"><div class="plabel">Phase 2 — Scale</div><div class="ptitle">Wave 2 Expansion</div><div class="ptarget">5,000 agents · 2 million users</div></div><div class="pb"><div class="pi">Coordinator &amp; Regional Portal (L2/L3 dashboards)</div><div class="pi">Commission Engine: L2/L3 override calculation</div><div class="pi">Full promotion engine + agent-created promos</div><div class="pi">Agent status automation + geographic reports</div><div class="pi">In-app messaging: direct messages + team broadcast</div>
+<div class="pi">WhatsApp Business API integration (notifications + fallback)</div>
+<div class="pi">Phone OTP auth upgrade — replaces Phase 1 password login</div>
+<div class="pi">Admin Console: 2FA (TOTP) added</div><div class="pi">Retail gift card batch generation for Indomaret/Alfamart</div></div></div>
+    <div class="pc p3"><div class="ph"><div class="plabel">Phase 3 — Ecosystem</div><div class="ptitle">Wave 3 Dominance</div><div class="ptarget">10M+ users · full platform</div></div><div class="pb"><div class="pi">Voice messages + file attachments in messaging</div><div class="pi">Cohort analysis + LTV reporting in Admin</div><div class="pi">Lifetime cap enforcement + PPh 21 automation</div><div class="pi">Geographic pricing tiers + B2B/institutional pricing</div><div class="pi">Aggregated data reporting layer (data product foundation)</div><div class="pi">Geographic density data released to agent dashboards</div></div></div>
+  </div>
+</div>
+
+<!-- S10 -->
+<div class="section" id="s10">
+  <div class="section-header"><span class="sec-num">SECTION 10</span><h2>Open Items &amp; Decisions Required</h2></div>
+  <p>The following require founder decision before development specification is finalized:</p>
+  <p style="color:var(--green);font-weight:600;font-size:13px;margin-bottom:16px">✓ All 8 open items resolved — v1.1</p>
+
+  <div class="oi"><div class="on" style="color:var(--green)">✓1</div><div><div class="ot">Self-Serve: Monthly + Annual both available</div><div class="od">Both Monthly (Rp 69,000) and Annual (Rp 499,000) appear in self-serve channel. System automatically calculates and attributes residual commission to the original activating agent even when merchant self-renews. agent_id is immutable after first activation.</div><div class="oim" style="color:var(--green)">✓ Resolved</div></div></div>
+
+  <div class="oi"><div class="on" style="color:var(--green)">✓2</div><div><div class="ot">Platform: PWA confirmed</div><div class="od">Agent App built as Progressive Web App. Installable on Android 8+, 2GB RAM minimum. Offline-tolerant with sync on reconnection.</div><div class="oim" style="color:var(--green)">✓ Resolved</div></div></div>
+
+  <div class="oi"><div class="on" style="color:var(--green)">✓3</div><div><div class="ot">Agent Enrollment: Auto-approve with referrer link/code</div><div class="od">Open enrollment, auto-approved. Every agent receives a unique referral link/code. New agent registrations must include a referrer code — from an existing agent, coordinator, or regional master. Referrer is recorded for accountability and network tracing. No manual review queue.</div><div class="oim" style="color:var(--green)">✓ Resolved</div></div></div>
+
+  <div class="oi"><div class="on" style="color:var(--green)">✓4</div><div><div class="ot">Chasm Bonus: Dropped entirely</div><div class="od">Verification is impractical and creates a policing overhead that outweighs the behavioral benefit. Early sprint bonuses will be handled through the Promotions Engine instead — activated by admin whenever needed, with full control over timing, duration, and amount.</div><div class="oim" style="color:var(--green)">✓ Resolved</div></div></div>
+
+  <div class="oi"><div class="on" style="color:var(--green)">✓5</div><div><div class="ot">Territory Definition: Flexible, admin-defined</div><div class="od">No fixed geographic boundaries. Admin assigns territory per coordinator manually. Location tracking is for agent distribution visibility only — not for territory enforcement.</div><div class="oim" style="color:var(--green)">✓ Resolved</div></div></div>
+
+  <div class="oi"><div class="on" style="color:var(--green)">✓6</div><div><div class="ot">Retail Voucher Logistics: Internal ops (Phase 2)</div><div class="od">Managed internally for now. No third-party distribution partner at launch. Revisit when voucher volume justifies dedicated logistics arrangement.</div><div class="oim" style="color:var(--green)">✓ Resolved</div></div></div>
+
+  <div class="oi"><div class="on" style="color:var(--green)">✓7</div><div><div class="ot">Lifetime Sunset: Manual admin toggle, no advance notice required</div><div class="od">Admin announces and disables new lifetime sales manually when target threshold is reached. No automated notice or pipeline protection. Existing lifetime users honored permanently.</div><div class="oim" style="color:var(--green)">✓ Resolved</div></div></div>
+
+  <div class="oi"><div class="on" style="color:var(--gray-300)">→8</div><div><div class="ot">Geographic Density Data (Phase 3): Deferred</div><div class="od">Withheld from agents in Phase 1 and 2. Phase 3 release criteria to be defined closer to the time. Not blocking current development.</div><div class="oim">→ Deferred to Phase 3 planning</div></div></div>
+
+  <div style="margin-top:32px;padding:20px;background:var(--teal-light);border-radius:10px;border-left:4px solid var(--teal)">
+    <div style="font-weight:700;color:var(--teal);font-size:13px;margin-bottom:12px">✓ Agent Payment Model — Confirmed: Model B (Full Price + Net Settlement)</div>
+    <div style="font-size:13px;color:#134e4a;line-height:1.7">
+      Agents pay <strong>full retail price</strong> to Sell More per code generated. Commission paid out on weekly cycle via net settlement.<br><br>
+      <strong>Net settlement mechanics:</strong> Agent payout = commissions earned − cash collected on behalf of company. QRIS payments go directly to Sell More; commission paid to agent on Friday. Cash payments collected by agent; agent remits net amount on payout day. Agents require zero float capital.<br><br>
+      <strong>Why Model B:</strong> Enables merchant ownership tracking independently from code generation. Enables renewal protection (see below). Keeps commission structure adjustable without changing agent pricing. Makes L2/L3 override calculations unambiguous.
+    </div>
+  </div>
+
+  <div style="margin-top:16px;padding:20px;background:var(--blue-light);border-radius:10px;border-left:4px solid var(--blue)">
+    <div style="font-weight:700;color:var(--blue);font-size:13px;margin-bottom:12px">✓ Renewal Protection Rule — Confirmed</div>
+    <div style="font-size:13px;color:#1e3a5f;line-height:1.7">
+      Every merchant is permanently linked to their original activating agent (agent_id, immutable). When a <strong>different agent</strong> generates a renewal code for that merchant:<br><br>
+      • New agent receives a <strong>one-time finder fee only</strong> (Rp 15,000–20,000) — not commission ownership<br>
+      • Original agent retains full residual commission stream uninterrupted<br>
+      • Residual ownership transfers to new agent <strong>only if</strong> original agent has been Suspended for at least one full quarter (genuinely abandoned the merchant)<br>
+      • Merchant can request formal agent transfer via Admin Console<br><br>
+      <strong>Dormant agents</strong> (50% residual) retain ownership — they are still active. Only Suspended (0%) triggers transferability.<br><br>
+      <strong>Transaction type rules — KPI and override treatment:</strong><br><br>
+      <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:4px">
+        <thead><tr>
+          <th style="background:#0D9488;color:#fff;padding:8px 12px;text-align:left;border-radius:6px 0 0 0">Transaction Type</th>
+          <th style="background:#0D9488;color:#fff;padding:8px 12px;text-align:center">Counts for KPI</th>
+          <th style="background:#0D9488;color:#fff;padding:8px 12px;text-align:center;border-radius:0 6px 0 0">L2 Override Applies</th>
+        </tr></thead>
+        <tbody>
+          <tr style="background:rgba(255,255,255,0.6)"><td style="padding:8px 12px;font-weight:600">New merchant activation</td><td style="padding:8px 12px;text-align:center;color:#16A34A;font-weight:700">✓ Yes</td><td style="padding:8px 12px;text-align:center;color:#16A34A;font-weight:700">✓ Yes (on residual)</td></tr>
+          <tr style="background:rgba(255,255,255,0.3)"><td style="padding:8px 12px;font-weight:600">Self-serve renewal (own merchant)</td><td style="padding:8px 12px;text-align:center;color:#DC2626;font-weight:700">✗ No</td><td style="padding:8px 12px;text-align:center;color:#16A34A;font-weight:700">✓ Yes (residual continues)</td></tr>
+          <tr style="background:rgba(255,255,255,0.6)"><td style="padding:8px 12px;font-weight:600">Finder fee renewal (other agent's merchant)</td><td style="padding:8px 12px;text-align:center;color:#DC2626;font-weight:700">✗ No</td><td style="padding:8px 12px;text-align:center;color:#DC2626;font-weight:700">✗ No</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div style="margin-top:40px;padding-top:24px;border-top:2px solid var(--gray-200)">
+    <h3 style="margin-top:0">Document Control</h3>
+    <div class="tw"><table><tbody>
+      <tr><td>Next Review</td><td>After Phase 1 architecture review with development team</td></tr>
+      <tr><td>Change Log</td><td>v1.4 — June 2026 — Project renamed to AYO (Amat Yakin Oke). Phase 1 auth simplified: username/password replaces OTP; 2FA deferred to Phase 2; WhatsApp Business API deferred to Phase 2. In-app notification bell is Phase 1 delivery channel. Section 8 integrations table phased. Section 9 Phase 1/2 bullets updated.</td></tr>
+      <tr><td></td><td>v1.3 — June 2026 — Full L2/L3 KPI schema + Tenure Clock + Parameter Registry. Removed Chasm Bonus. Fixed Annual Y1 commission to Rp 150,000. Two-axis status engine, multiplier tables, promotion gates, graduation rules, cohort decay model. All thresholds named parameters.</td></tr>
+      <tr><td></td><td>v1.2 — Added finder fee KPI and override rules</td></tr>
+      <tr><td>Repository</td><td>github.com/darwintjoe/ayo</td></tr>
+      <tr><td>Distribution</td><td>Darwin Tjoe (Founder) · Development Lead · Technical Architect</td></tr>
+      <tr><td>Classification</td><td>Confidential — Accurate.id / Otter.id / Sell More</td></tr>
+    </tbody></table></div>
+  </div>
+</div>
+
+</div><!-- /content -->
+</main>
+</div><!-- /layout -->
+</body>
+</html>

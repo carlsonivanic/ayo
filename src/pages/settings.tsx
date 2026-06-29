@@ -1,0 +1,394 @@
+import { useState } from "react";
+import { useQuery, useMutation, useAction } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import { Id } from "@/convex/_generated/dataModel";
+import { Layout } from "@/components/Layout";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
+import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
+import { formatDate } from "@/lib/format";
+import { Loader2, Pencil, Trash2 } from "lucide-react";
+
+type Role = "super_admin" | "finance_admin" | "ops_admin";
+
+const ROLE_LABEL: Record<Role, string> = {
+  super_admin: "Super Admin",
+  finance_admin: "Finance Admin",
+  ops_admin: "Ops Admin",
+};
+
+function AdminUsersCard() {
+  const admins = useQuery(api.admins.list);
+  const me = useQuery(api.admins.me);
+  const invite = useAction(api.admins.invite);
+  const remove = useMutation(api.admins.remove);
+  const setRoleMut = useMutation(api.admins.setRole);
+
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState<Role>("ops_admin");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [ok, setOk] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function onInvite(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setOk(null);
+    if (password.length < 16) {
+      setError("Kata sandi awal minimal 16 karakter.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await invite({ name, email, role, password });
+      setOk(`Admin ${email} dibuat. Bagikan kata sandi awalnya secara aman.`);
+      setName("");
+      setEmail("");
+      setPassword("");
+      setRole("ops_admin");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal membuat admin.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onRemove(id: Id<"adminProfiles">, name: string) {
+    if (
+      !confirm(
+        `Hapus admin ${name}? Akunnya dihapus permanen dan tidak bisa login lagi.`,
+      )
+    )
+      return;
+    try {
+      await remove({ adminProfileId: id });
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Gagal menghapus admin.");
+    }
+  }
+
+  async function onChangeRole(id: Id<"adminProfiles">, newRole: Role) {
+    try {
+      await setRoleMut({ adminProfileId: id, role: newRole });
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Gagal mengubah peran.");
+    }
+  }
+
+  return (
+    <Card className="mb-8">
+      <CardHeader>
+        <CardTitle>Pengguna Admin Console</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          Pendaftaran mandiri dimatikan — super admin yang membuatkan akun di
+          sini dengan kata sandi awal, lalu membagikannya ke admin baru.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <form
+          onSubmit={onInvite}
+          className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5 lg:items-end"
+        >
+          <div className="space-y-1.5">
+            <Label htmlFor="adm-name">Nama</Label>
+            <Input
+              id="adm-name"
+              required
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="adm-email">Email</Label>
+            <Input
+              id="adm-email"
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="adm-role">Peran</Label>
+            <Select
+              id="adm-role"
+              value={role}
+              onChange={(e) => setRole(e.target.value as Role)}
+            >
+              <option value="ops_admin">Ops Admin</option>
+              <option value="finance_admin">Finance Admin</option>
+              <option value="super_admin">Super Admin</option>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="adm-pass">Kata sandi awal (≥16)</Label>
+            <Input
+              id="adm-pass"
+              type="text"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </div>
+          <Button type="submit" disabled={busy}>
+            {busy && <Loader2 className="animate-spin" />}
+            Buat admin
+          </Button>
+        </form>
+        {error && <p className="text-sm text-destructive">{error}</p>}
+        {ok && <p className="text-sm text-emerald-600">{ok}</p>}
+
+        <Table>
+          <THead>
+            <TR>
+              <TH>Nama</TH>
+              <TH>Email</TH>
+              <TH>Peran</TH>
+              <TH>Dibuat</TH>
+              <TH className="w-10" />
+            </TR>
+          </THead>
+          <TBody>
+            {admins?.map((a) => (
+              <TR key={a._id}>
+                <TD className="font-medium">{a.name}</TD>
+                <TD className="text-muted-foreground">{a.email}</TD>
+                <TD>
+                  {me?._id === a._id ? (
+                    ROLE_LABEL[a.role as Role]
+                  ) : (
+                    <Select
+                      value={a.role}
+                      aria-label={`Peran ${a.name}`}
+                      onChange={(e) =>
+                        onChangeRole(a._id, e.target.value as Role)
+                      }
+                    >
+                      <option value="ops_admin">Ops Admin</option>
+                      <option value="finance_admin">Finance Admin</option>
+                      <option value="super_admin">Super Admin</option>
+                    </Select>
+                  )}
+                </TD>
+                <TD className="text-muted-foreground">{formatDate(a.createdAt)}</TD>
+                <TD>
+                  {me?._id !== a._id && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => onRemove(a._id, a.name)}
+                      aria-label="Hapus admin"
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  )}
+                </TD>
+              </TR>
+            ))}
+            {admins && admins.length === 0 && (
+              <TR>
+                <TD colSpan={5} className="py-8 text-center text-muted-foreground">
+                  Belum ada admin.
+                </TD>
+              </TR>
+            )}
+          </TBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Convert a ms timestamp to the value a <input type="datetime-local"> wants. */
+function toDatetimeLocal(ms: number): string {
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
+    d.getHours(),
+  )}:${pad(d.getMinutes())}`;
+}
+
+function ParamRow({
+  param,
+  canEdit,
+}: {
+  param: { key: string; value: string; effectiveAt: number; note?: string };
+  canEdit: boolean;
+}) {
+  const setParam = useMutation(api.params.setParam);
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(param.value);
+  const [when, setWhen] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function startEdit() {
+    setValue(param.value);
+    setWhen(toDatetimeLocal(Date.now()));
+    setNote("");
+    setError(null);
+    setEditing(true);
+  }
+
+  async function onSave() {
+    setError(null);
+    const ms = when ? new Date(when).getTime() : Date.now();
+    if (Number.isNaN(ms)) {
+      setError("Tanggal tidak valid.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await setParam({
+        key: param.key,
+        value,
+        effectiveAt: ms,
+        note: note || undefined,
+      });
+      setEditing(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal menyimpan.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!editing) {
+    return (
+      <TR>
+        <TD className="font-mono text-xs">{param.key}</TD>
+        <TD className="font-medium">{param.value}</TD>
+        <TD className="text-muted-foreground">
+          {param.effectiveAt === 0 ? "default" : formatDate(param.effectiveAt)}
+        </TD>
+        <TD className="w-10">
+          {canEdit && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={startEdit}
+              aria-label={`Edit ${param.key}`}
+            >
+              <Pencil className="h-4 w-4" />
+            </Button>
+          )}
+        </TD>
+      </TR>
+    );
+  }
+
+  return (
+    <TR>
+      <TD className="font-mono text-xs align-top">{param.key}</TD>
+      <TD colSpan={2}>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor={`val-${param.key}`}>Nilai baru</Label>
+            <Input
+              id={`val-${param.key}`}
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor={`eff-${param.key}`}>Berlaku sejak</Label>
+            <Input
+              id={`eff-${param.key}`}
+              type="datetime-local"
+              value={when}
+              onChange={(e) => setWhen(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label htmlFor={`note-${param.key}`}>Catatan (opsional)</Label>
+            <Input
+              id={`note-${param.key}`}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Alasan perubahan…"
+            />
+          </div>
+        </div>
+        {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
+      </TD>
+      <TD className="align-top">
+        <div className="flex flex-col gap-2">
+          <Button size="sm" onClick={onSave} disabled={busy}>
+            {busy && <Loader2 className="animate-spin" />}
+            Simpan
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setEditing(false)}
+            disabled={busy}
+          >
+            Batal
+          </Button>
+        </div>
+      </TD>
+    </TR>
+  );
+}
+
+export default function SettingsPage() {
+  const params = useQuery(api.params.listEffective);
+  const me = useQuery(api.admins.me);
+  const [q, setQ] = useState("");
+
+  const canEdit =
+    me?.role === "super_admin" || me?.role === "finance_admin";
+
+  const filtered = params?.filter((p) =>
+    p.key.toLowerCase().includes(q.toLowerCase()),
+  );
+
+  return (
+    <Layout
+      title="Parameter Sistem"
+      subtitle="Semua nilai bisnis hidup di registry ini. Menyimpan perubahan menambah versi baru (riwayat lama tetap utuh) dan bisa dijadwalkan ke depan."
+    >
+      <AdminUsersCard />
+
+      <div className="mb-4 max-w-sm">
+        <Input
+          placeholder="Cari parameter… (mis. l1_monthly)"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
+      </div>
+      <Card>
+        <CardContent className="p-0">
+          <Table>
+            <THead>
+              <TR>
+                <TH>Key</TH>
+                <TH>Nilai</TH>
+                <TH>Berlaku sejak</TH>
+                <TH className="w-10" />
+              </TR>
+            </THead>
+            <TBody>
+              {filtered?.map((p) => (
+                <ParamRow key={p.key} param={p} canEdit={canEdit} />
+              ))}
+              {filtered && filtered.length === 0 && (
+                <TR>
+                  <TD colSpan={4} className="py-8 text-center text-muted-foreground">
+                    Tidak ada parameter cocok.
+                  </TD>
+                </TR>
+              )}
+            </TBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </Layout>
+  );
+}

@@ -1,0 +1,192 @@
+import { ReactNode } from "react";
+import { useRouter } from "next/router";
+import Link from "next/link";
+import { useQuery } from "convex/react";
+import { useAuthActions } from "@convex-dev/auth/react";
+import { Authenticated, Unauthenticated, AuthLoading } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import {
+  LayoutDashboard,
+  Users,
+  Ticket,
+  Wallet,
+  SlidersHorizontal,
+  LogOut,
+  Loader2,
+} from "lucide-react";
+
+type Role = "super_admin" | "finance_admin" | "ops_admin";
+
+const NAV: {
+  href: string;
+  label: string;
+  icon: typeof Users;
+  roles?: Role[];
+}[] = [
+  { href: "/", label: "Ringkasan", icon: LayoutDashboard },
+  { href: "/agents", label: "Salesperson", icon: Users },
+  { href: "/codes", label: "Kode Langganan", icon: Ticket },
+  { href: "/commissions", label: "Komisi", icon: Wallet },
+  {
+    href: "/settings",
+    label: "Parameter",
+    icon: SlidersHorizontal,
+    roles: ["super_admin"],
+  },
+];
+
+const ROLE_LABEL: Record<Role, string> = {
+  super_admin: "Super Admin",
+  finance_admin: "Finance Admin",
+  ops_admin: "Ops Admin",
+};
+
+function Shell({ children }: { children: ReactNode }) {
+  const router = useRouter();
+  const { signOut } = useAuthActions();
+  const me = useQuery(api.admins.me);
+  const agentMe = useQuery(api.agentAuth.me);
+
+  // Not an admin. A salesperson account belongs in the Agent Portal.
+  if (me === null && agentMe) {
+    if (typeof window !== "undefined") router.replace("/app");
+    return null;
+  }
+
+  // Still resolving whether this user is an agent — avoid flashing the
+  // "pending approval" screen at a salesperson.
+  if (me === null && agentMe === undefined) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  // Authenticated but no admin profile and not an agent → access pending.
+  if (me === null) {
+    return (
+      <div className="flex min-h-screen items-center justify-center p-6">
+        <div className="max-w-md text-center">
+          <h1 className="text-xl font-semibold">Akses menunggu persetujuan</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Akun kamu sudah masuk, tetapi belum diberi peran admin. Hubungi
+            super admin untuk diberikan akses, atau jalankan{" "}
+            <code className="rounded bg-muted px-1">seed:grantAdmin</code>.
+          </p>
+          <Button variant="outline" className="mt-4" onClick={() => signOut()}>
+            <LogOut /> Keluar
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const role = me?.role as Role | undefined;
+  const nav = NAV.filter((n) => !n.roles || (role && n.roles.includes(role)));
+
+  return (
+    <div className="flex min-h-screen bg-muted/30">
+      <aside className="hidden w-60 shrink-0 flex-col border-r bg-background md:flex">
+        <div className="flex h-14 items-center gap-2 border-b px-5">
+          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground">
+            AYO
+          </div>
+          <span className="text-sm font-semibold">Admin Console</span>
+        </div>
+        <nav className="flex-1 space-y-1 p-3">
+          {nav.map((item) => {
+            const active =
+              item.href === "/"
+                ? router.pathname === "/"
+                : router.pathname.startsWith(item.href);
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                  active
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                )}
+              >
+                <Icon className="h-4 w-4" />
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+        <div className="border-t p-3">
+          <div className="px-2 pb-2 text-xs text-muted-foreground">
+            <div className="font-medium text-foreground">{me?.name}</div>
+            {role ? ROLE_LABEL[role] : ""}
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start"
+            onClick={() => signOut()}
+          >
+            <LogOut /> Keluar
+          </Button>
+        </div>
+      </aside>
+
+      <main className="flex-1 overflow-x-hidden">{children}</main>
+    </div>
+  );
+}
+
+export function Layout({
+  children,
+  title,
+  subtitle,
+  actions,
+}: {
+  children: ReactNode;
+  title: string;
+  subtitle?: string;
+  actions?: ReactNode;
+}) {
+  const router = useRouter();
+
+  return (
+    <>
+      <AuthLoading>
+        <div className="flex min-h-screen items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      </AuthLoading>
+      <Unauthenticated>
+        <RedirectToLogin router={router} />
+      </Unauthenticated>
+      <Authenticated>
+        <Shell>
+          <div className="mx-auto max-w-7xl px-6 py-6">
+            <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+                {subtitle && (
+                  <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
+                )}
+              </div>
+              {actions}
+            </header>
+            {children}
+          </div>
+        </Shell>
+      </Authenticated>
+    </>
+  );
+}
+
+function RedirectToLogin({ router }: { router: ReturnType<typeof useRouter> }) {
+  if (typeof window !== "undefined" && router.pathname !== "/login") {
+    router.replace("/login");
+  }
+  return null;
+}
