@@ -37,16 +37,29 @@ export default function MerchantsPage() {
               <Card key={m._id}>
                 <CardContent className="flex items-center justify-between py-3.5">
                   <div className="min-w-0">
-                    <div className="truncate font-mono text-xs text-muted-foreground">
-                      {m.deviceId}
+                    <div className="truncate text-sm font-semibold">
+                      {m.merchantName || "Merchant tanpa nama"}
                     </div>
+                    {m.merchantLocation && (
+                      <div className="truncate text-xs text-muted-foreground">
+                        {m.merchantLocation}
+                      </div>
+                    )}
                     <div className="mt-0.5 text-sm font-medium">
                       {TIER_LABEL[m.tier] ?? m.tier}
+                      {m.code && (
+                        <span className="ml-1.5 font-mono text-xs text-muted-foreground">
+                          {m.code}
+                        </span>
+                      )}
                     </div>
                     <div className="text-xs text-muted-foreground">
                       Aktif sejak {formatDate(m.activatedAt)}
                       {m.daysRemaining !== null &&
                         ` · ${m.daysRemaining > 0 ? `${m.daysRemaining} hari lagi` : "berakhir"}`}
+                    </div>
+                    <div className="truncate font-mono text-[10px] text-muted-foreground/70">
+                      {m.deviceId}
                     </div>
                   </div>
                   <Badge tone={d.tone}>{d.label}</Badge>

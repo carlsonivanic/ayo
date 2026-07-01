@@ -16,6 +16,7 @@ import type * as codes from "../codes.js";
 import type * as commissions from "../commissions.js";
 import type * as http from "../http.js";
 import type * as lib_codegen from "../lib/codegen.js";
+import type * as lib_licenseToken from "../lib/licenseToken.js";
 import type * as lib_money from "../lib/money.js";
 import type * as licenses from "../licenses.js";
 import type * as overview from "../overview.js";
@@ -44,6 +45,7 @@ declare const fullApi: ApiFromModules<{
   commissions: typeof commissions;
   http: typeof http;
   "lib/codegen": typeof lib_codegen;
+  "lib/licenseToken": typeof lib_licenseToken;
   "lib/money": typeof lib_money;
   licenses: typeof licenses;
   overview: typeof overview;

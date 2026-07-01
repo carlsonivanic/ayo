@@ -109,6 +109,11 @@ export default defineSchema({
     // Price snapshot (IDR) captured at activation — the price the buyer actually
     // paid. Optional for rows created before pricing snapshots existed.
     priceIDR: v.optional(v.int64()),
+    // Merchant identity captured from the POS at activation (the Sellmore
+    // business profile: name + location). Lets salespeople see WHO redeemed a
+    // code, not just an opaque deviceId. Optional for rows created before this.
+    merchantName: v.optional(v.string()),
+    merchantLocation: v.optional(v.string()),
   })
     .index("by_device", ["deviceId"])
     .index("by_agent", ["agentId"])

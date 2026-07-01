@@ -177,6 +177,15 @@ function CodeRow({ code }: { code: CodeItem }) {
             </div>
           )}
 
+          {code.status === "active" && (code.merchantName || code.merchantDeviceId) && (
+            <div className="flex justify-between gap-3">
+              <span className="text-muted-foreground">Merchant</span>
+              <span className="truncate text-right font-medium">
+                {code.merchantName || code.merchantDeviceId}
+              </span>
+            </div>
+          )}
+
           {code.status === "revoked" && code.revokedReason && (
             <div className="flex justify-between gap-3">
               <span className="text-muted-foreground">Alasan dicabut</span>

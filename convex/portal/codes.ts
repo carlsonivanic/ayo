@@ -149,18 +149,39 @@ export const myCodes = query({
       .withIndex("by_agent", (q) => q.eq("agentId", agent._id))
       .order("desc")
       .take(100);
-    return codes.map((c) => ({
-      _id: c._id,
-      code: c.code,
-      tier: c.tier,
-      lifetimeKind: c.lifetimeKind,
-      status: c.status,
-      priceIDR: c.priceIDR !== undefined ? c.priceIDR.toString() : null,
-      duoExpiresAt: c.duoExpiresAt,
-      expiresUnusedAt: c.expiresUnusedAt,
-      activatedAt: c.activatedAt,
-      revokedReason: c.revokedReason,
-      createdAt: c._creationTime,
-    }));
+    return await Promise.all(
+      codes.map(async (c) => {
+        // For a redeemed code, surface WHO redeemed it (the merchant device that
+        // activated on this code) so "which code, by which merchant" is visible
+        // straight from the code history.
+        let merchantName: string | null = null;
+        let merchantDeviceId: string | null = null;
+        if (c.status === "active") {
+          const license = await ctx.db
+            .query("licenses")
+            .withIndex("by_code", (q) => q.eq("codeId", c._id))
+            .first();
+          if (license) {
+            merchantName = license.merchantName ?? null;
+            merchantDeviceId = license.deviceId;
+          }
+        }
+        return {
+          _id: c._id,
+          code: c.code,
+          tier: c.tier,
+          lifetimeKind: c.lifetimeKind,
+          status: c.status,
+          priceIDR: c.priceIDR !== undefined ? c.priceIDR.toString() : null,
+          duoExpiresAt: c.duoExpiresAt,
+          expiresUnusedAt: c.expiresUnusedAt,
+          activatedAt: c.activatedAt,
+          revokedReason: c.revokedReason,
+          createdAt: c._creationTime,
+          merchantName,
+          merchantDeviceId,
+        };
+      }),
+    );
   },
 });
