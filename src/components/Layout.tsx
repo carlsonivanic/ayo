@@ -1,4 +1,4 @@
-import { ReactNode } from "react";
+import { ReactNode, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { useQuery } from "convex/react";
@@ -8,6 +8,12 @@ import { api } from "@/convex/_generated/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
+  Sheet,
+  SheetContent,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
+import {
   LayoutDashboard,
   Users,
   Ticket,
@@ -15,6 +21,7 @@ import {
   SlidersHorizontal,
   LogOut,
   Loader2,
+  Menu,
 } from "lucide-react";
 
 type Role = "super_admin" | "finance_admin" | "ops_admin";
@@ -48,6 +55,7 @@ function Shell({ children }: { children: ReactNode }) {
   const { signOut } = useAuthActions();
   const me = useQuery(api.admins.me);
   const agentMe = useQuery(api.agentAuth.me);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   // Not an admin. A salesperson account belongs in the Agent Portal.
   if (me === null && agentMe) {
@@ -87,56 +95,93 @@ function Shell({ children }: { children: ReactNode }) {
   const role = me?.role as Role | undefined;
   const nav = NAV.filter((n) => !n.roles || (role && n.roles.includes(role)));
 
+  const brand = (
+    <div className="flex h-14 items-center gap-2 border-b px-5">
+      <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground">
+        AYO
+      </div>
+      <span className="text-sm font-semibold">Admin Console</span>
+    </div>
+  );
+
+  const navLinks = (onNavigate?: () => void) => (
+    <nav className="flex-1 space-y-1 p-3">
+      {nav.map((item) => {
+        const active =
+          item.href === "/"
+            ? router.pathname === "/"
+            : router.pathname.startsWith(item.href);
+        const Icon = item.icon;
+        return (
+          <Link
+            key={item.href}
+            href={item.href}
+            onClick={onNavigate}
+            className={cn(
+              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+              active
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+            )}
+          >
+            <Icon className="h-4 w-4" />
+            {item.label}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+
+  const footer = (
+    <div className="border-t p-3">
+      <div className="px-2 pb-2 text-xs text-muted-foreground">
+        <div className="font-medium text-foreground">{me?.name}</div>
+        {role ? ROLE_LABEL[role] : ""}
+      </div>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="w-full justify-start"
+        onClick={() => signOut()}
+      >
+        <LogOut /> Keluar
+      </Button>
+    </div>
+  );
+
   return (
     <div className="flex min-h-screen bg-muted/30">
       <aside className="hidden w-60 shrink-0 flex-col border-r bg-background md:flex">
-        <div className="flex h-14 items-center gap-2 border-b px-5">
-          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground">
-            AYO
-          </div>
-          <span className="text-sm font-semibold">Admin Console</span>
-        </div>
-        <nav className="flex-1 space-y-1 p-3">
-          {nav.map((item) => {
-            const active =
-              item.href === "/"
-                ? router.pathname === "/"
-                : router.pathname.startsWith(item.href);
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-                  active
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                )}
-              >
-                <Icon className="h-4 w-4" />
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
-        <div className="border-t p-3">
-          <div className="px-2 pb-2 text-xs text-muted-foreground">
-            <div className="font-medium text-foreground">{me?.name}</div>
-            {role ? ROLE_LABEL[role] : ""}
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full justify-start"
-            onClick={() => signOut()}
-          >
-            <LogOut /> Keluar
-          </Button>
-        </div>
+        {brand}
+        {navLinks()}
+        {footer}
       </aside>
 
-      <main className="flex-1 overflow-x-hidden">{children}</main>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b bg-background px-4 md:hidden">
+          <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+            <SheetTrigger asChild>
+              <Button variant="ghost" size="icon" aria-label="Buka menu">
+                <Menu className="h-5 w-5" />
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="left" className="flex w-64 flex-col p-0">
+              <SheetTitle className="sr-only">Menu navigasi</SheetTitle>
+              {brand}
+              {navLinks(() => setMobileNavOpen(false))}
+              {footer}
+            </SheetContent>
+          </Sheet>
+          <div className="flex items-center gap-2">
+            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground">
+              AYO
+            </div>
+            <span className="text-sm font-semibold">Admin Console</span>
+          </div>
+        </header>
+
+        <main className="flex-1 overflow-x-hidden">{children}</main>
+      </div>
     </div>
   );
 }

@@ -101,6 +101,14 @@ const PARAMS: Record<string, string> = {
   duration_annual_days: "365",
 };
 
+// Canonical region defaults, shared by the destructive demo seed and the
+// non-destructive prod seed. Deduped by `code`.
+const REGION_DEFS: { name: string; code: string }[] = [
+  { name: "DKI Jakarta", code: "JKT" },
+  { name: "Surabaya", code: "SBY" },
+  { name: "Bandung", code: "BDG" },
+];
+
 const DAY = 86400000;
 
 /** Snapshot price (IDR BigInt) for a tier, mirroring params.tierPriceKey. */
@@ -179,6 +187,70 @@ export const seedParameters = internalMutation({
   },
 });
 
+/**
+ * Non-destructive region seed. Inserts every REGION_DEFS entry whose `code` is
+ * not already present, and leaves existing regions untouched. Safe on a live
+ * deployment — codes/licenses require at least one region to exist.
+ */
+export const seedRegions = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const inserted: string[] = [];
+    const skipped: string[] = [];
+    for (const def of REGION_DEFS) {
+      const existing = await ctx.db
+        .query("regions")
+        .withIndex("by_code", (q) => q.eq("code", def.code))
+        .first();
+      if (existing) {
+        skipped.push(def.code);
+        continue;
+      }
+      await ctx.db.insert("regions", def);
+      inserted.push(def.code);
+    }
+    return { inserted, skipped };
+  },
+});
+
+/**
+ * Non-destructive prod bootstrap: parameters + regions only. Safe to run on a
+ * live deployment (e.g. `npx convex run seed:seedProd --prod`); never clears
+ * tables and never inserts demo agents/codes/licenses. Admins are granted
+ * separately via `seed:grantAdmin` after signing up on the login screen.
+ */
+export const seedProd = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const existingParams = await ctx.db.query("systemParameters").collect();
+    const knownParams = new Set(
+      existingParams.filter((r) => !r.regionId).map((r) => r.key),
+    );
+    const insertedParams: string[] = [];
+    for (const [key, value] of Object.entries(PARAMS)) {
+      if (knownParams.has(key)) continue;
+      await ctx.db.insert("systemParameters", { key, value, effectiveAt: 0 });
+      insertedParams.push(key);
+    }
+
+    const insertedRegions: string[] = [];
+    for (const def of REGION_DEFS) {
+      const existing = await ctx.db
+        .query("regions")
+        .withIndex("by_code", (q) => q.eq("code", def.code))
+        .first();
+      if (existing) continue;
+      await ctx.db.insert("regions", def);
+      insertedRegions.push(def.code);
+    }
+
+    return {
+      parameters: { inserted: insertedParams, skipped: knownParams.size },
+      regions: { inserted: insertedRegions },
+    };
+  },
+});
+
 /** Seed parameters + regions + demo agents/codes/licenses/ledger. Idempotent. */
 export const run = internalMutation({
   args: {},
@@ -205,13 +277,8 @@ export const run = internalMutation({
     }
 
     // Regions
-    const regionDefs = [
-      { name: "DKI Jakarta", code: "JKT" },
-      { name: "Surabaya", code: "SBY" },
-      { name: "Bandung", code: "BDG" },
-    ];
     const regions: Id<"regions">[] = [];
-    for (const r of regionDefs) regions.push(await ctx.db.insert("regions", r));
+    for (const r of REGION_DEFS) regions.push(await ctx.db.insert("regions", r));
     const [JKT, SBY, BDG] = regions;
 
     const now = Date.now();
