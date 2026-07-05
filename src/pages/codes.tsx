@@ -49,19 +49,19 @@ export default function CodesPage() {
       title="Kode Langganan"
       subtitle="Buat dan lacak kode SM-XXXX-XXXX-XXXXX yang ditebus di Sell More."
     >
-      <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
+      <div className="grid min-w-0 gap-6 lg:grid-cols-[360px_1fr]">
         {canGenerate ? (
           <GenerateForm />
         ) : (
-          <Card>
+          <Card className="min-w-0">
             <CardContent className="pt-6 text-sm text-muted-foreground">
               Peran kamu tidak memiliki akses membuat kode. Hanya Ops/Super Admin.
             </CardContent>
           </Card>
         )}
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0">
+        <Card className="min-w-0">
+          <CardHeader className="flex flex-wrap items-center justify-between gap-2 space-y-0">
             <CardTitle className="text-base">Semua kode</CardTitle>
             <Select
               value={filter}
@@ -77,6 +77,9 @@ export default function CodesPage() {
             </Select>
           </CardHeader>
           <CardContent className="p-0">
+            <p className="border-b px-3 py-1.5 text-xs text-muted-foreground sm:hidden">
+              Geser ke kanan untuk melihat kolom lainnya →
+            </p>
             <Table>
               <THead>
                 <TR>
@@ -222,15 +225,21 @@ function GenerateForm() {
     }
   }
 
+  const fieldClass = "h-11 text-base sm:h-9 sm:text-sm";
+
   return (
-    <Card>
-      <CardHeader>
+    <Card className="min-w-0">
+      <CardHeader className="px-4 sm:px-6">
         <CardTitle className="text-base">Buat kode</CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="px-4 pt-0 sm:px-6">
         <form onSubmit={onSubmit} className="space-y-3">
           <Field label="Tier">
-            <Select value={tier} onChange={(e) => setTier(e.target.value)}>
+            <Select
+              className={fieldClass}
+              value={tier}
+              onChange={(e) => setTier(e.target.value)}
+            >
               {TIER_META.map((t) => {
                 const price = prices ? prices[t.priceKey] : undefined;
                 const priceLabel =
@@ -247,14 +256,22 @@ function GenerateForm() {
             </Select>
           </Field>
           <Field label="Kanal">
-            <Select value={channel} onChange={(e) => setChannel(e.target.value)}>
+            <Select
+              className={fieldClass}
+              value={channel}
+              onChange={(e) => setChannel(e.target.value)}
+            >
               <option value="agent">Agen</option>
               <option value="retail">Retail</option>
               <option value="self_serve">Self-serve</option>
             </Select>
           </Field>
           <Field label="Wilayah">
-            <Select value={regionId} onChange={(e) => setRegionId(e.target.value)}>
+            <Select
+              className={fieldClass}
+              value={regionId}
+              onChange={(e) => setRegionId(e.target.value)}
+            >
               <option value="">Pilih wilayah…</option>
               {regions?.map((r) => (
                 <option key={r._id} value={r._id}>
@@ -264,7 +281,11 @@ function GenerateForm() {
             </Select>
           </Field>
           <Field label="Agen (opsional)">
-            <Select value={agentId} onChange={(e) => setAgentId(e.target.value)}>
+            <Select
+              className={fieldClass}
+              value={agentId}
+              onChange={(e) => setAgentId(e.target.value)}
+            >
               <option value="">— tanpa agen —</option>
               {agents?.map((a) => (
                 <option key={a._id} value={a._id}>
@@ -277,6 +298,7 @@ function GenerateForm() {
             <div className="grid grid-cols-2 gap-3">
               <Field label="Jumlah">
                 <Input
+                  className={fieldClass}
                   type="number"
                   min={1}
                   max={100}
@@ -286,6 +308,7 @@ function GenerateForm() {
               </Field>
               <Field label="Batch (opsional)">
                 <Input
+                  className={fieldClass}
                   value={batchId}
                   onChange={(e) => setBatchId(e.target.value)}
                   placeholder="RETAIL-2026-06"
@@ -294,7 +317,7 @@ function GenerateForm() {
             </div>
           )}
           {err && <p className="text-sm text-destructive">{err}</p>}
-          <Button type="submit" className="w-full" disabled={busy}>
+          <Button type="submit" size="lg" className="w-full" disabled={busy}>
             {busy ? "Membuat…" : "Buat kode"}
           </Button>
         </form>
