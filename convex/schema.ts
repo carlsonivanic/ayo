@@ -66,6 +66,23 @@ export default defineSchema({
     .index("by_status", ["status"])
     .index("by_level", ["level"]),
 
+  // agentInvites — admin-issued invite links for creating a new salesperson
+  // login directly from the admin panel. The admin fills in the profile
+  // (name/phone/email/level/region); the invitee opens the link and only
+  // chooses their own password, so the admin never sees or sets it.
+  agentInvites: defineTable({
+    token: v.string(),
+    name: v.string(),
+    phone: v.string(),
+    email: v.string(),
+    level: v.number(),
+    regionId: v.id("regions"),
+    createdBy: v.id("adminProfiles"),
+    expiresAt: v.number(),
+    usedAt: v.optional(v.number()),
+    agentId: v.optional(v.id("agents")),
+  }).index("by_token", ["token"]),
+
   // agent_team_memberships — THE tenure clock table.
   agentTeamMemberships: defineTable({
     l1AgentId: v.id("agents"),

@@ -48,7 +48,7 @@ Roles: `super_admin` (all + Parameter screen), `ops_admin` (agents + generate co
 
 ## Screens
 - `/` Ringkasan — live KPIs.
-- `/agents` Salesperson — monitoring table, approval queue, status override.
+- `/agents` User Management — monitoring table, approval queue, invite new users, status override.
 - `/codes` Kode Langganan — generate (incl. Lifetime Duo pair) + revoke.
 - `/commissions` Komisi — read-only L1 payout summary.
 - `/settings` Parameter — system parameter registry (super_admin).

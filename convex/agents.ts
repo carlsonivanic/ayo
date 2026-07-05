@@ -153,57 +153,6 @@ export const agentDetail = query({
   },
 });
 
-/** Manually add a new salesperson (ops/super). MVP: goes straight to active. */
-export const createAgent = mutation({
-  args: {
-    name: v.string(),
-    phone: v.string(),
-    level: v.number(),
-    regionId: v.id("regions"),
-    referrerId: v.optional(v.id("agents")),
-  },
-  handler: async (ctx, args) => {
-    await requireAdmin(ctx, ["ops_admin", "super_admin"]);
-
-    const name = args.name.trim();
-    const phone = args.phone.trim();
-    if (name.length < 2) throw new Error("Nama wajib diisi.");
-    if (phone.length < 6) throw new Error("Nomor HP tidak valid.");
-    if (![1, 2, 3].includes(args.level)) throw new Error("Level tidak valid.");
-
-    const existing = await ctx.db
-      .query("agents")
-      .withIndex("by_phone", (q) => q.eq("phone", phone))
-      .first();
-    if (existing) throw new Error("Nomor HP sudah terdaftar.");
-
-    const region = await ctx.db.get(args.regionId);
-    if (!region) throw new Error("Wilayah tidak ditemukan.");
-
-    const now = Date.now();
-    const agentId = await ctx.db.insert("agents", {
-      name,
-      phone,
-      level: args.level,
-      status: "active",
-      regionId: args.regionId,
-      referrerId: args.referrerId,
-      enrolledAt: now,
-      feePaidAt: now,
-      escrowAmount: 0n,
-    });
-
-    await ctx.db.insert("notifications", {
-      agentId,
-      kind: "status_change",
-      title: "Akun dibuat",
-      body: "Akun kamu telah dibuat admin dan langsung Aktif. Kamu bisa mulai membuat kode.",
-    });
-
-    return agentId;
-  },
-});
-
 /** Approve a probation agent → active (ops/super). */
 export const approveAgent = mutation({
   args: { agentId: v.id("agents") },

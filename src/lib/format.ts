@@ -88,6 +88,24 @@ export const TIER_LABEL: Record<string, string> = {
   lifetime: "Seumur Hidup",
 };
 
+// Acronyms/abbreviations that should stay upper-cased when a systemParameters
+// key (snake_case) is turned into a display label, e.g. "l1_kpi_health_pct"
+// -> "L1 KPI Health Pct" instead of "L1 Kpi Health Pct".
+const PARAM_LABEL_ACRONYMS = new Set(["l1", "l2", "l3", "kpi", "pph21"]);
+
+/** Turn a systemParameters snake_case key into a readable Title Case label. */
+export function formatParamLabel(key: string): string {
+  return key
+    .split("_")
+    .filter(Boolean)
+    .map((word) => {
+      const lower = word.toLowerCase();
+      if (PARAM_LABEL_ACRONYMS.has(lower)) return lower.toUpperCase();
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
+    .join(" ");
+}
+
 export const COMMISSION_TYPE_LABEL: Record<string, string> = {
   l1_residual: "Residual L1",
   l1_closing: "Closing L1",

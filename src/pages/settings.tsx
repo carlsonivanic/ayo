@@ -9,10 +9,152 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatParamLabel } from "@/lib/format";
 import { Loader2, Pencil, Trash2 } from "lucide-react";
 
 type Role = "super_admin" | "finance_admin" | "ops_admin";
+
+type Param = { key: string; value: string; effectiveAt: number; note?: string };
+
+// Groups parameters by business relevance (mirrors convex/seed.ts's PARAMS
+// sections) instead of the flat alphabetical list the backend returns. Any
+// key not listed here (e.g. a new parameter added later) still shows up,
+// bucketed into "Lainnya" so nothing silently disappears from the screen.
+const PARAM_GROUPS: { label: string; keys: string[] }[] = [
+  {
+    label: "Harga",
+    keys: [
+      "price_daily",
+      "price_weekly",
+      "price_monthly",
+      "price_annual",
+      "price_lifetime_solo",
+      "price_lifetime_duo",
+    ],
+  },
+  {
+    label: "L1 — Pendaftaran, Status & Komisi",
+    keys: [
+      "l1_probation_months",
+      "l1_commitment_fee",
+      "l1_fee_waiver_extra_activations",
+      "l1_escrow_forfeiture_days",
+      "l1_active_min_activations",
+      "l1_dormant_min_activations",
+      "l1_dormant_warning_week",
+      "l1_dormant_residual_pct",
+      "l1_inactive_residual_pct",
+      "l1_lifetime_conversion_cap_pct",
+      "l1_ownership_transfer_quarters",
+      "finder_fee_amount",
+      "l1_monthly_commission_y1_pct",
+      "l1_monthly_commission_y2_pct",
+      "l1_monthly_commission_y3_pct",
+      "l1_annual_commission_y1_pct",
+      "l1_annual_commission_y2_pct",
+      "l1_lifetime_solo_commission",
+      "l1_lifetime_duo_commission",
+    ],
+  },
+  {
+    label: "L2 — Gerbang, KPI, Roster & Insentif",
+    keys: [
+      "l2_promo_min_months_l1",
+      "l2_promo_min_activations",
+      "l2_promo_min_recruits",
+      "l2_kpi_period",
+      "l2_kpi_health_pct",
+      "l2_kpi_dev_min",
+      "l2_roster_soft_cap",
+      "l2_roster_warning_threshold",
+      "l2_suspended_denominator_quarters",
+      "l2_multiplier_active",
+      "l2_multiplier_coasting",
+      "l2_multiplier_developing",
+      "l2_multiplier_dormant",
+      "l2_multiplier_suspended",
+      "l2_override_rate",
+      "l2_bonus_area_threshold",
+      "l2_bonus_area_amount",
+      "l2_bonus_growth_pct",
+      "l2_bonus_growth_amount",
+      "l2_promo_bonus_per_l1_promoted",
+    ],
+  },
+  {
+    label: "L3 — Gerbang, KPI, Roster & Insentif",
+    keys: [
+      "l3_promo_min_months_l2",
+      "l3_promo_min_l2s_built",
+      "l3_promo_min_active_merchants",
+      "l3_kpi_period",
+      "l3_kpi_health_pct",
+      "l3_kpi_dev_min",
+      "l3_roster_soft_cap",
+      "l3_roster_warning_threshold",
+      "l3_multiplier_active",
+      "l3_multiplier_coasting",
+      "l3_multiplier_developing",
+      "l3_multiplier_dormant",
+      "l3_multiplier_suspended",
+      "l3_override_rate",
+      "l3_bonus_region_threshold",
+      "l3_bonus_region_amount",
+      "l3_bonus_annual_threshold",
+      "l3_bonus_annual_amount",
+      "l3_bonus_growth_pct",
+      "l3_bonus_growth_amount",
+      "l3_promo_bonus_per_l2_promoted",
+    ],
+  },
+  {
+    label: "Tenure & Graduasi",
+    keys: [
+      "l1_l2_tenure_years",
+      "l1_l2_graduation_warning_months",
+      "l2_l3_graduation_warning_months",
+      "tenure_clock_applies_to_existing",
+    ],
+  },
+  {
+    label: "Payout Bersama",
+    keys: [
+      "payout_minimum_threshold",
+      "pph21_threshold",
+      "payout_dispute_window_days",
+    ],
+  },
+  {
+    label: "Platform & Siklus Kode",
+    keys: ["code_unused_expiry_days", "lifetime_duo_window_hours", "grace_period_days"],
+  },
+  {
+    label: "Durasi Langganan",
+    keys: ["duration_weekly_days", "duration_monthly_days", "duration_annual_days"],
+  },
+];
+
+/** Bucket the flat, alphabetically-sorted param list into PARAM_GROUPS sections. */
+function groupParams(params: Param[]): { label: string; rows: Param[] }[] {
+  const byKey = new Map(params.map((p) => [p.key, p]));
+  const used = new Set<string>();
+  const groups: { label: string; rows: Param[] }[] = [];
+
+  for (const g of PARAM_GROUPS) {
+    const rows = g.keys
+      .map((k) => byKey.get(k))
+      .filter((p): p is Param => !!p);
+    for (const p of rows) used.add(p.key);
+    if (rows.length > 0) groups.push({ label: g.label, rows });
+  }
+
+  const rest = params
+    .filter((p) => !used.has(p.key))
+    .sort((a, b) => a.key.localeCompare(b.key));
+  if (rest.length > 0) groups.push({ label: "Lainnya", rows: rest });
+
+  return groups;
+}
 
 const ROLE_LABEL: Record<Role, string> = {
   super_admin: "Super Admin",
@@ -262,7 +404,12 @@ function ParamRow({
   if (!editing) {
     return (
       <TR>
-        <TD className="font-mono text-xs">{param.key}</TD>
+        <TD>
+          <div className="font-medium">{formatParamLabel(param.key)}</div>
+          <div className="font-mono text-xs text-muted-foreground">
+            {param.key}
+          </div>
+        </TD>
         <TD className="font-medium">{param.value}</TD>
         <TD className="text-muted-foreground">
           {param.effectiveAt === 0 ? "default" : formatDate(param.effectiveAt)}
@@ -285,7 +432,12 @@ function ParamRow({
 
   return (
     <TR>
-      <TD className="font-mono text-xs align-top">{param.key}</TD>
+      <TD className="align-top">
+        <div className="font-medium">{formatParamLabel(param.key)}</div>
+        <div className="font-mono text-xs text-muted-foreground">
+          {param.key}
+        </div>
+      </TD>
       <TD colSpan={2}>
         <div className="grid gap-2 sm:grid-cols-2">
           <div className="space-y-1.5">
@@ -345,9 +497,13 @@ export default function SettingsPage() {
   const canEdit =
     me?.role === "super_admin" || me?.role === "finance_admin";
 
-  const filtered = params?.filter((p) =>
-    p.key.toLowerCase().includes(q.toLowerCase()),
+  const needle = q.toLowerCase();
+  const filtered = params?.filter(
+    (p) =>
+      p.key.toLowerCase().includes(needle) ||
+      formatParamLabel(p.key).toLowerCase().includes(needle),
   );
+  const groups = filtered ? groupParams(filtered) : [];
 
   return (
     <Layout
@@ -358,37 +514,45 @@ export default function SettingsPage() {
 
       <div className="mb-4 max-w-sm">
         <Input
-          placeholder="Cari parameter… (mis. l1_monthly)"
+          placeholder="Cari parameter… (mis. Grace Period)"
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
       </div>
-      <Card>
-        <CardContent className="p-0">
-          <Table>
-            <THead>
-              <TR>
-                <TH>Key</TH>
-                <TH>Nilai</TH>
-                <TH>Berlaku sejak</TH>
-                <TH className="w-10" />
-              </TR>
-            </THead>
-            <TBody>
-              {filtered?.map((p) => (
-                <ParamRow key={p.key} param={p} canEdit={canEdit} />
-              ))}
-              {filtered && filtered.length === 0 && (
-                <TR>
-                  <TD colSpan={4} className="py-8 text-center text-muted-foreground">
-                    Tidak ada parameter cocok.
-                  </TD>
-                </TR>
-              )}
-            </TBody>
-          </Table>
-        </CardContent>
-      </Card>
+
+      <div className="space-y-6">
+        {groups.map((g) => (
+          <Card key={g.label}>
+            <CardHeader>
+              <CardTitle className="text-base">{g.label}</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table>
+                <THead>
+                  <TR>
+                    <TH>Parameter</TH>
+                    <TH>Nilai</TH>
+                    <TH>Berlaku sejak</TH>
+                    <TH className="w-10" />
+                  </TR>
+                </THead>
+                <TBody>
+                  {g.rows.map((p) => (
+                    <ParamRow key={p.key} param={p} canEdit={canEdit} />
+                  ))}
+                </TBody>
+              </Table>
+            </CardContent>
+          </Card>
+        ))}
+        {filtered && filtered.length === 0 && (
+          <Card>
+            <CardContent className="py-8 text-center text-muted-foreground">
+              Tidak ada parameter cocok.
+            </CardContent>
+          </Card>
+        )}
+      </div>
     </Layout>
   );
 }

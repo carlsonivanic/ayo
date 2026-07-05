@@ -25,6 +25,7 @@ import {
   LEVEL_LABEL,
   COMMISSION_TYPE_LABEL,
 } from "@/lib/format";
+import { Copy, Check, Loader2 } from "lucide-react";
 
 const STATUSES = ["active", "probation", "dormant", "inactive", "suspended"] as const;
 
@@ -48,11 +49,11 @@ export default function AgentsPage() {
 
   return (
     <Layout
-      title="Salesperson"
+      title="User Management"
       subtitle="Pantau agen lapangan: status, aktivasi, dan komisi."
       actions={
         canManage ? (
-          <Button onClick={() => setAddOpen(true)}>+ Tambah Salesperson</Button>
+          <Button onClick={() => setAddOpen(true)}>+ Tambah Pengguna</Button>
         ) : undefined
       }
     >
@@ -91,6 +92,8 @@ export default function AgentsPage() {
           </CardContent>
         </Card>
       )}
+
+      {canManage && <PendingInvitesCard />}
 
       {/* Filters */}
       <div className="mb-4 grid gap-3 sm:grid-cols-3 lg:max-w-2xl">
@@ -198,31 +201,113 @@ function RegionFilter({
   );
 }
 
+function inviteLink(token: string): string {
+  const origin =
+    typeof window !== "undefined" ? window.location.origin : "";
+  return `${origin}/undangan/${token}`;
+}
+
+function CopyLinkButton({ link }: { link: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={() => {
+        navigator.clipboard.writeText(link);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1200);
+      }}
+    >
+      {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+      {copied ? "Tersalin" : "Salin tautan"}
+    </Button>
+  );
+}
+
+function PendingInvitesCard() {
+  const invites = useQuery(api.agentInvites.listPending);
+  const revoke = useMutation(api.agentInvites.revokeInvite);
+
+  if (!invites || invites.length === 0) return null;
+
+  async function onRevoke(id: Id<"agentInvites">, name: string) {
+    if (!confirm(`Batalkan undangan untuk ${name}?`)) return;
+    try {
+      await revoke({ inviteId: id });
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Gagal membatalkan undangan.");
+    }
+  }
+
+  return (
+    <Card className="mb-6">
+      <CardContent className="pt-6">
+        <div className="mb-3 text-sm font-medium">
+          Undangan menunggu aktivasi ({invites.length})
+        </div>
+        <div className="space-y-2">
+          {invites.map((i) => (
+            <div
+              key={i._id}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-background px-3 py-2"
+            >
+              <div className="text-sm">
+                <span className="font-medium">{i.name}</span>
+                <span className="text-muted-foreground">
+                  {" "}
+                  · {i.email} · {LEVEL_LABEL[i.level] ?? i.level}
+                  {i.expired ? " · kedaluwarsa" : ""}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                {!i.expired && <CopyLinkButton link={inviteLink(i.token)} />}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onRevoke(i._id, i.name)}
+                >
+                  Batalkan
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function AddAgentDialog({ onClose }: { onClose: () => void }) {
   const regions = useQuery(api.regions.list);
-  const create = useMutation(api.agents.createAgent);
+  const createInvite = useMutation(api.agentInvites.createInvite);
 
   const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [level, setLevel] = useState("1");
   const [regionId, setRegionId] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [token, setToken] = useState<string | null>(null);
 
   async function submit() {
     setErr(null);
     if (name.trim().length < 2) return setErr("Nama wajib diisi.");
+    if (!email.includes("@")) return setErr("Email tidak valid.");
     if (phone.trim().length < 6) return setErr("Nomor HP tidak valid.");
     if (!regionId) return setErr("Pilih wilayah.");
     setBusy(true);
     try {
-      await create({
+      const res = await createInvite({
         name,
+        email,
         phone,
         level: Number(level),
         regionId: regionId as Id<"regions">,
       });
-      onClose();
+      setToken(res.token);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Gagal menyimpan.");
     } finally {
@@ -230,13 +315,40 @@ function AddAgentDialog({ onClose }: { onClose: () => void }) {
     }
   }
 
+  if (token) {
+    const link = inviteLink(token);
+    return (
+      <Dialog open onOpenChange={(o) => !o && onClose()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Undangan dibuat</DialogTitle>
+            <DialogDescription>
+              Bagikan tautan ini ke {name}. Mereka akan memilih kata sandi
+              sendiri dan akunnya langsung berstatus Aktif.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2">
+              <span className="flex-1 truncate font-mono text-xs">{link}</span>
+              <CopyLinkButton link={link} />
+            </div>
+            <div className="flex justify-end">
+              <Button onClick={onClose}>Selesai</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Tambah Salesperson</DialogTitle>
+          <DialogTitle>Tambah Pengguna</DialogTitle>
           <DialogDescription>
-            Agen baru langsung berstatus Aktif dan bisa membuat kode.
+            Buat tautan undangan — pengguna baru memilih kata sandinya sendiri
+            saat membuka tautan, lalu langsung berstatus Aktif.
           </DialogDescription>
         </DialogHeader>
 
@@ -247,6 +359,15 @@ function AddAgentDialog({ onClose }: { onClose: () => void }) {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Nama lengkap"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Email</Label>
+            <Input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="nama@email.com"
             />
           </div>
           <div className="space-y-1.5">
@@ -289,7 +410,8 @@ function AddAgentDialog({ onClose }: { onClose: () => void }) {
               Batal
             </Button>
             <Button onClick={submit} disabled={busy}>
-              Simpan
+              {busy && <Loader2 className="animate-spin" />}
+              Buat undangan
             </Button>
           </div>
         </div>
