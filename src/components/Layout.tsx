@@ -97,9 +97,13 @@ function Shell({ children }: { children: ReactNode }) {
 
   const brand = (
     <div className="flex h-14 items-center gap-2 border-b px-5">
-      <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground">
+      <Link
+        href="/"
+        aria-label="Beranda"
+        className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground transition-opacity hover:opacity-90"
+      >
         AYO
-      </div>
+      </Link>
       <span className="text-sm font-semibold">Admin Console</span>
     </div>
   );
@@ -134,18 +138,10 @@ function Shell({ children }: { children: ReactNode }) {
 
   const footer = (
     <div className="border-t p-3">
-      <div className="px-2 pb-2 text-xs text-muted-foreground">
+      <div className="px-2 pb-1 text-xs text-muted-foreground">
         <div className="font-medium text-foreground">{me?.name}</div>
         {role ? ROLE_LABEL[role] : ""}
       </div>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="w-full justify-start"
-        onClick={() => signOut()}
-      >
-        <LogOut /> Keluar
-      </Button>
     </div>
   );
 
@@ -173,9 +169,13 @@ function Shell({ children }: { children: ReactNode }) {
             </SheetContent>
           </Sheet>
           <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground">
+            <Link
+              href="/"
+              aria-label="Beranda"
+              className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground transition-opacity hover:opacity-90"
+            >
               AYO
-            </div>
+            </Link>
             <span className="text-sm font-semibold">Admin Console</span>
           </div>
         </header>
@@ -219,13 +219,32 @@ export function Layout({
                   <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
                 )}
               </div>
-              {actions}
+              <div className="ml-auto flex items-center gap-2">
+                {actions}
+                <HeaderLogout />
+              </div>
             </header>
             {children}
           </div>
         </Shell>
       </Authenticated>
     </>
+  );
+}
+
+/** Top-right logout affordance for the admin content header. */
+function HeaderLogout() {
+  const { signOut } = useAuthActions();
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      onClick={() => signOut()}
+      aria-label="Keluar"
+      title="Keluar"
+    >
+      <LogOut className="h-5 w-5" />
+    </Button>
   );
 }
 

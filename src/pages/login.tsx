@@ -21,8 +21,9 @@ function LoginForm() {
     setError(null);
     setLoading(true);
     try {
-      // Sign-in only. New admins are provisioned by a super admin
-      // (admins.invite); there is no self-serve registration.
+      // Single sign-in for everyone. RouteGuard resolves which app the user
+      // belongs to (admin console at "/" or salesperson portal at "/app")
+      // and redirects there after the auth session is established.
       await signIn("password", { email, password, flow: "signIn" });
     } catch {
       setError("Email atau kata sandi salah.");
@@ -38,9 +39,10 @@ function LoginForm() {
           <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-md bg-primary text-sm font-bold text-primary-foreground">
             AYO
           </div>
-          <CardTitle>Admin Console</CardTitle>
+          <CardTitle>Masuk ke AYO</CardTitle>
           <CardDescription>
-            Masuk untuk mengelola jaringan agen Sell More.
+            Masuk dengan email & kata sandi kamu. Admin dan salesperson masuk
+            lewat sini — kami mengarahkan kamu ke dashboard yang sesuai.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -74,12 +76,9 @@ function LoginForm() {
             </Button>
           </form>
           <p className="mt-4 text-center text-xs text-muted-foreground">
-            Akun admin dibuatkan oleh super admin. Hubungi super admin jika
-            butuh akses.
-          </p>
-          <p className="mt-2 text-center text-xs text-muted-foreground">
-            <Link href="/welcome" className="underline">
-              ← Pilihan masuk lain
+            Belum punya akun salesperson?{" "}
+            <Link href="/daftar" className="font-medium text-primary underline">
+              Daftar di sini
             </Link>
           </p>
         </CardContent>

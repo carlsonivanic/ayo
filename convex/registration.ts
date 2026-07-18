@@ -135,7 +135,11 @@ export const registerAgent = action({
     email: v.string(),
     password: v.string(),
     phone: v.string(),
-    regionId: v.id("regions"),
+    // Free-text geo hint (typically a city) captured client-side from an IP
+    // geo lookup. The backend resolves (finds-or-creates) the region via
+    // `regions.ensureRegion`; empty/invalid → default region. Registration
+    // must never fail solely because geo-lookup did.
+    geoHint: v.optional(v.string()),
     referrerPhone: v.optional(v.string()),
     // Honeypot: must be empty.
     hp: v.string(),
@@ -164,6 +168,12 @@ export const registerAgent = action({
     });
     if (taken) throw new Error("Nomor HP sudah terdaftar.");
 
+    // Resolve the region from the client's geo hint (find-or-create). Done
+    // before account provisioning so a geo failure can't orphan an auth user.
+    const regionId = await ctx.runMutation(internal.regions.ensureRegion, {
+      hint: args.geoHint,
+    });
+
     // Provision the auth account (validates email uniqueness, hashes password).
     let user;
     try {
@@ -185,7 +195,7 @@ export const registerAgent = action({
         authUserId: user._id,
         name,
         phone,
-        regionId: args.regionId,
+        regionId,
         referrerPhone,
       });
     } catch (err) {

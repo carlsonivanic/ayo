@@ -60,13 +60,17 @@ function Shell({ children }: { children: ReactNode }) {
       {/* Top bar */}
       <header className="sticky top-0 z-10 flex items-center justify-between border-b bg-background px-4 py-3">
         <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground">
+          <Link
+            href="/app"
+            aria-label="Beranda"
+            className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground transition-opacity hover:opacity-90"
+          >
             AYO
-          </div>
+          </Link>
           <div className="leading-tight">
             <div className="text-sm font-semibold">{me.name}</div>
             <div className="text-[11px] text-muted-foreground">
-              {LEVEL_LABEL[me.level] ?? `L${me.level}`} · {me.regionCode}
+              {LEVEL_LABEL[me.level] ?? `L${me.level}`}
             </div>
           </div>
         </div>
@@ -176,8 +180,8 @@ export function AgentLayout({
 }
 
 function RedirectToLogin({ router }: { router: ReturnType<typeof useRouter> }) {
-  if (typeof window !== "undefined" && router.pathname !== "/app/login") {
-    router.replace("/app/login");
+  if (typeof window !== "undefined" && router.pathname !== "/login") {
+    router.replace("/login");
   }
   return null;
 }

@@ -33,14 +33,12 @@ export default function AgentsPage() {
   const me = useQuery(api.admins.me);
   const canManage = me?.role === "ops_admin" || me?.role === "super_admin";
 
-  const [regionId, setRegionId] = useState<string>("");
   const [level, setLevel] = useState<string>("");
   const [status, setStatus] = useState<string>("");
   const [detailId, setDetailId] = useState<Id<"agents"> | null>(null);
   const [addOpen, setAddOpen] = useState(false);
 
   const agents = useQuery(api.agents.listAgents, {
-    regionId: regionId ? (regionId as Id<"regions">) : undefined,
     level: level ? Number(level) : undefined,
     status: status ? (status as (typeof STATUSES)[number]) : undefined,
   });
@@ -74,7 +72,7 @@ export default function AgentsPage() {
                     <span className="font-medium">{a.name}</span>
                     <span className="text-muted-foreground">
                       {" "}
-                      · {a.phone} · {a.regionCode} · daftar{" "}
+                      · {a.phone} · daftar{" "}
                       {relativeDays(a.enrolledAt)}
                     </span>
                   </div>
@@ -96,8 +94,7 @@ export default function AgentsPage() {
       {canManage && <PendingInvitesCard />}
 
       {/* Filters */}
-      <div className="mb-4 grid gap-3 sm:grid-cols-3 lg:max-w-2xl">
-        <RegionFilter value={regionId} onChange={setRegionId} />
+      <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:max-w-md">
         <Select value={level} onChange={(e) => setLevel(e.target.value)}>
           <option value="">Semua level</option>
           <option value="1">L1 · Agen</option>
@@ -121,7 +118,6 @@ export default function AgentsPage() {
               <TR>
                 <TH>Nama</TH>
                 <TH>Level</TH>
-                <TH>Wilayah</TH>
                 <TH>Status</TH>
                 <TH className="text-right">Aktivasi/kuartal</TH>
                 <TH className="text-right">Merchant aktif</TH>
@@ -140,7 +136,6 @@ export default function AgentsPage() {
                   <TD className="text-muted-foreground">
                     {LEVEL_LABEL[a.level] ?? a.level}
                   </TD>
-                  <TD>{a.regionCode}</TD>
                   <TD>
                     <AgentStatusBadge status={a.status} />
                   </TD>
@@ -158,7 +153,7 @@ export default function AgentsPage() {
               ))}
               {agents && agents.length === 0 && (
                 <TR>
-                  <TD colSpan={8} className="py-8 text-center text-muted-foreground">
+                  <TD colSpan={7} className="py-8 text-center text-muted-foreground">
                     Tidak ada agen yang cocok dengan filter.
                   </TD>
                 </TR>
@@ -178,26 +173,6 @@ export default function AgentsPage() {
 
       {addOpen && <AddAgentDialog onClose={() => setAddOpen(false)} />}
     </Layout>
-  );
-}
-
-function RegionFilter({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  const regions = useQuery(api.regions.list);
-  return (
-    <Select value={value} onChange={(e) => onChange(e.target.value)}>
-      <option value="">Semua wilayah</option>
-      {regions?.map((r) => (
-        <option key={r._id} value={r._id}>
-          {r.name}
-        </option>
-      ))}
-    </Select>
   );
 }
 
@@ -280,14 +255,12 @@ function PendingInvitesCard() {
 }
 
 function AddAgentDialog({ onClose }: { onClose: () => void }) {
-  const regions = useQuery(api.regions.list);
   const createInvite = useMutation(api.agentInvites.createInvite);
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [level, setLevel] = useState("1");
-  const [regionId, setRegionId] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [token, setToken] = useState<string | null>(null);
@@ -297,7 +270,6 @@ function AddAgentDialog({ onClose }: { onClose: () => void }) {
     if (name.trim().length < 2) return setErr("Nama wajib diisi.");
     if (!email.includes("@")) return setErr("Email tidak valid.");
     if (phone.trim().length < 6) return setErr("Nomor HP tidak valid.");
-    if (!regionId) return setErr("Pilih wilayah.");
     setBusy(true);
     try {
       const res = await createInvite({
@@ -305,7 +277,6 @@ function AddAgentDialog({ onClose }: { onClose: () => void }) {
         email,
         phone,
         level: Number(level),
-        regionId: regionId as Id<"regions">,
       });
       setToken(res.token);
     } catch (e) {
@@ -387,20 +358,6 @@ function AddAgentDialog({ onClose }: { onClose: () => void }) {
                 <option value="3">L3 · Regional</option>
               </Select>
             </div>
-            <div className="space-y-1.5">
-              <Label>Wilayah</Label>
-              <Select
-                value={regionId}
-                onChange={(e) => setRegionId(e.target.value)}
-              >
-                <option value="">Pilih…</option>
-                {regions?.map((r) => (
-                  <option key={r._id} value={r._id}>
-                    {r.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
           </div>
 
           {err && <p className="text-sm text-destructive">{err}</p>}
@@ -463,7 +420,7 @@ function AgentDetailDialog({
           <DialogTitle>{detail?.name ?? "Detail agen"}</DialogTitle>
           <DialogDescription>
             {detail
-              ? `${LEVEL_LABEL[detail.level]} · ${detail.regionCode} · ${detail.phone}`
+              ? `${LEVEL_LABEL[detail.level]} · ${detail.phone}`
               : "Memuat…"}
           </DialogDescription>
         </DialogHeader>

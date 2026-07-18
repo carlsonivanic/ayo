@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Loader2, LogOut, ShieldAlert } from "lucide-react";
 
 /** Pages anyone may reach without being signed in. */
-const PUBLIC_PATHS = ["/welcome", "/login", "/daftar", "/app/login"];
+const PUBLIC_PATHS = ["/login", "/daftar", "/undangan/[token]"];
 
 function isAgentPath(pathname: string) {
   return pathname === "/app" || pathname.startsWith("/app/");
@@ -94,9 +94,9 @@ function Gate({ children }: { children: ReactNode }) {
   return <PendingScreen />;
 }
 
-function RedirectToWelcome() {
+function RedirectToLogin() {
   const router = useRouter();
-  if (typeof window !== "undefined") router.replace("/welcome");
+  if (typeof window !== "undefined") router.replace("/login");
   return <Spinner />;
 }
 
@@ -112,7 +112,7 @@ export function RouteGuard({ children }: { children: ReactNode }) {
         <Spinner />
       </AuthLoading>
       <Unauthenticated>
-        <RedirectToWelcome />
+        <RedirectToLogin />
       </Unauthenticated>
       <Authenticated>
         <Gate>{children}</Gate>

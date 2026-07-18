@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAction, useQuery } from "convex/react";
@@ -14,6 +14,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Loader2, CheckCircle2 } from "lucide-react";
+import { lookupGeoHint } from "@/lib/geoRegion";
 
 export default function AcceptInvitePage() {
   const router = useRouter();
@@ -28,6 +29,26 @@ export default function AcceptInvitePage() {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
 
+  // Auto-resolve the invitee's region from their IP so the new salesperson
+  // lands in the right region without a wilayah picker. Failure is silent —
+  // the backend falls back to a default region.
+  const [geoHint, setGeoHint] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const controller = new AbortController();
+    lookupGeoHint(controller.signal)
+      .then((hint) => {
+        if (!cancelled) setGeoHint(hint);
+      })
+      .catch(() => {
+        /* leave null; backend defaults */
+      });
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, []);
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -41,7 +62,7 @@ export default function AcceptInvitePage() {
     }
     setLoading(true);
     try {
-      await accept({ token, password });
+      await accept({ token, password, geoHint: geoHint ?? undefined });
       setSuccess(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Terjadi kesalahan.");
@@ -56,11 +77,10 @@ export default function AcceptInvitePage() {
         <CheckCircle2 className="mx-auto h-12 w-12 text-green-500" />
         <h2 className="text-lg font-semibold">Akun aktif!</h2>
         <p className="text-sm text-muted-foreground">
-          Kata sandi kamu sudah disimpan. Sekarang kamu bisa masuk ke Agent
-          Portal.
+          Kata sandi kamu sudah disimpan. Sekarang kamu bisa masuk.
         </p>
         <Link
-          href="/app/login"
+          href="/login"
           className="inline-block text-sm font-medium text-primary underline"
         >
           Ke halaman masuk
