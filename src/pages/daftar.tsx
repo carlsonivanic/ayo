@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/card";
 import { Loader2, CheckCircle2, MapPin } from "lucide-react";
 import { lookupGeoHint } from "@/lib/geoRegion";
+import { BuildIdStamp } from "@/components/BuildIdStamp";
 
 export default function DaftarPage() {
   const register = useAction(api.registration.registerAgent);
@@ -100,6 +101,7 @@ export default function DaftarPage() {
             </Link>
           </CardContent>
         </Card>
+        <BuildIdStamp />
       </div>
     );
   }
@@ -222,6 +224,7 @@ export default function DaftarPage() {
           </p>
         </CardContent>
       </Card>
+      <BuildIdStamp />
     </div>
   );
 }

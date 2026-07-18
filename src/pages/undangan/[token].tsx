@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/card";
 import { Loader2, CheckCircle2 } from "lucide-react";
 import { lookupGeoHint } from "@/lib/geoRegion";
+import { BuildIdStamp } from "@/components/BuildIdStamp";
 
 export default function AcceptInvitePage() {
   const router = useRouter();
@@ -160,6 +161,7 @@ export default function AcceptInvitePage() {
           </form>
         </CardContent>
       </Card>
+      <BuildIdStamp />
     </div>
   );
 }
@@ -170,6 +172,7 @@ function Shell({ children }: { children: React.ReactNode }) {
       <Card className="w-full max-w-sm text-center">
         <CardContent className="pt-8 pb-8 space-y-3">{children}</CardContent>
       </Card>
+      <BuildIdStamp />
     </div>
   );
 }

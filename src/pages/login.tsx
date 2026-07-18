@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { BuildIdStamp } from "@/components/BuildIdStamp";
 import { Loader2 } from "lucide-react";
 
 function LoginForm() {
@@ -83,6 +84,7 @@ function LoginForm() {
           </p>
         </CardContent>
       </Card>
+      <BuildIdStamp />
     </div>
   );
 }
