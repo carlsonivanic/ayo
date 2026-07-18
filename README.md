@@ -1,4 +1,5 @@
 # AYO — Admin Console (Phase 1 MVP)
+##v0.0.1
 
 Commercial backend + admin dashboard for the Sell More POS (Selmo). Convex backend
 + Next.js (Pages Router) admin console. See `INIT_PROMPT.md` and `ayo_prd.html`.
