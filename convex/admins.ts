@@ -5,8 +5,14 @@ import {
   mutation,
   action,
   internalMutation,
+  internalQuery,
 } from "./_generated/server";
-import { getAuthUserId, createAccount } from "@convex-dev/auth/server";
+import {
+  getAuthUserId,
+  createAccount,
+  modifyAccountCredentials,
+  invalidateSessions,
+} from "@convex-dev/auth/server";
 import { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
@@ -85,6 +91,9 @@ export const list = query({
  *
  * Runs as an action because `createAccount` (which hashes the password) needs
  * an action context; the admin-profile row is written via `attachProfile`.
+ *
+ * The initial password enforces the same ≥8-char minimum used across the app
+ * (agent self-registration, invite redemption, password resets).
  */
 export const invite = action({
   args: {
@@ -100,8 +109,8 @@ export const invite = action({
 
     const normalized = email.trim().toLowerCase();
     if (!normalized.includes("@")) throw new Error("Email tidak valid.");
-    if (password.length < 16)
-      throw new Error("Kata sandi awal minimal 16 karakter.");
+    if (password.length < 8)
+      throw new Error("Kata sandi awal minimal 8 karakter.");
 
     let user;
     try {
@@ -143,6 +152,80 @@ export const attachProfile = internalMutation({
       return existing._id;
     }
     return await ctx.db.insert("adminProfiles", { authUserId, name, role });
+  },
+});
+
+/**
+ * Edit an admin's profile (super_admin only): name always, role too. A super
+ * admin may edit their own name but cannot change their own role (same guard
+ * as `setRole` — prevents locking the last super admin out).
+ */
+export const update = mutation({
+  args: {
+    adminProfileId: v.id("adminProfiles"),
+    name: v.string(),
+    role: roleValidator,
+  },
+  handler: async (ctx, { adminProfileId, name, role }) => {
+    const self = await requireAdmin(ctx, ["super_admin"]);
+    const target = await ctx.db.get(adminProfileId);
+    if (!target) throw new Error("Admin tidak ditemukan.");
+
+    const trimmed = name.trim();
+    if (trimmed.length < 2) throw new Error("Nama minimal 2 karakter.");
+
+    if (self._id === adminProfileId && target.role !== role) {
+      throw new Error("Tidak bisa mengubah peran akun sendiri.");
+    }
+    await ctx.db.patch(adminProfileId, { name: trimmed, role });
+  },
+});
+
+/** Internal: resolve a Convex Auth user id by login email. */
+export const getUserIdByEmail = internalQuery({
+  args: { email: v.string() },
+  handler: async (ctx, { email }) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("email", (q) => q.eq("email", email))
+      .unique();
+    return user?._id ?? null;
+  },
+});
+
+/**
+ * Reset an admin's password (super_admin only). The admin sets a new password
+ * directly and shares it out of band (same trust model as `invite`). After the
+ * change, all of the target's existing sessions are invalidated so they must
+ * sign in again with the new password.
+ *
+ * Runs as an action because `modifyAccountCredentials` (password hashing) needs
+ * an action context; the user id is resolved via `getUserIdByEmail`.
+ */
+export const resetPassword = action({
+  args: { email: v.string(), password: v.string() },
+  handler: async (ctx, { email, password }) => {
+    const me = await ctx.runQuery(api.admins.me);
+    if (!me || me.role !== "super_admin")
+      throw new Error("Tidak diizinkan: butuh peran super_admin.");
+
+    const normalized = email.trim().toLowerCase();
+    if (!normalized.includes("@")) throw new Error("Email tidak valid.");
+    if (password.length < 8)
+      throw new Error("Kata sandi minimal 8 karakter.");
+
+    const userId: Id<"users"> | null = await ctx.runQuery(
+      internal.admins.getUserIdByEmail,
+      { email: normalized },
+    );
+    if (!userId) throw new Error("Pengguna tidak ditemukan.");
+
+    await modifyAccountCredentials(ctx, {
+      provider: "password",
+      account: { id: normalized, secret: password },
+    });
+    // Force relogin on every device the target is currently signed in on.
+    await invalidateSessions(ctx, { userId });
   },
 });
 

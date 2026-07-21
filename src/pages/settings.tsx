@@ -9,10 +9,25 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { formatDate, formatParamLabel } from "@/lib/format";
-import { Loader2, Pencil, Trash2 } from "lucide-react";
+import { Loader2, Pencil, Trash2, KeyRound } from "lucide-react";
 
 type Role = "super_admin" | "finance_admin" | "ops_admin";
+
+type Admin = {
+  _id: Id<"adminProfiles">;
+  name: string;
+  role: Role;
+  email: string;
+  createdAt: number;
+};
 
 type Param = { key: string; value: string; effectiveAt: number; note?: string };
 
@@ -167,7 +182,6 @@ function AdminUsersCard() {
   const me = useQuery(api.admins.me);
   const invite = useAction(api.admins.invite);
   const remove = useMutation(api.admins.remove);
-  const setRoleMut = useMutation(api.admins.setRole);
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -176,13 +190,15 @@ function AdminUsersCard() {
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState<Admin | null>(null);
+  const [resetting, setResetting] = useState<Admin | null>(null);
 
   async function onInvite(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setOk(null);
-    if (password.length < 16) {
-      setError("Kata sandi awal minimal 16 karakter.");
+    if (password.length < 8) {
+      setError("Kata sandi awal minimal 8 karakter.");
       return;
     }
     setBusy(true);
@@ -211,14 +227,6 @@ function AdminUsersCard() {
       await remove({ adminProfileId: id });
     } catch (err) {
       alert(err instanceof Error ? err.message : "Gagal menghapus admin.");
-    }
-  }
-
-  async function onChangeRole(id: Id<"adminProfiles">, newRole: Role) {
-    try {
-      await setRoleMut({ adminProfileId: id, role: newRole });
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Gagal mengubah peran.");
     }
   }
 
@@ -268,7 +276,7 @@ function AdminUsersCard() {
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="adm-pass">Kata sandi awal (≥16)</Label>
+            <Label htmlFor="adm-pass">Kata sandi awal (≥8)</Label>
             <Input
               id="adm-pass"
               type="text"
@@ -292,46 +300,54 @@ function AdminUsersCard() {
               <TH>Email</TH>
               <TH>Peran</TH>
               <TH>Dibuat</TH>
-              <TH className="w-10" />
+              <TH className="w-32" />
             </TR>
           </THead>
           <TBody>
-            {admins?.map((a) => (
-              <TR key={a._id}>
-                <TD className="font-medium">{a.name}</TD>
-                <TD className="text-muted-foreground">{a.email}</TD>
-                <TD>
-                  {me?._id === a._id ? (
-                    ROLE_LABEL[a.role as Role]
-                  ) : (
-                    <Select
-                      value={a.role}
-                      aria-label={`Peran ${a.name}`}
-                      onChange={(e) =>
-                        onChangeRole(a._id, e.target.value as Role)
-                      }
-                    >
-                      <option value="ops_admin">Ops Admin</option>
-                      <option value="finance_admin">Finance Admin</option>
-                      <option value="super_admin">Super Admin</option>
-                    </Select>
-                  )}
-                </TD>
-                <TD className="text-muted-foreground">{formatDate(a.createdAt)}</TD>
-                <TD>
-                  {me?._id !== a._id && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onRemove(a._id, a.name)}
-                      aria-label="Hapus admin"
-                    >
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
-                  )}
-                </TD>
-              </TR>
-            ))}
+            {admins?.map((a) => {
+              const self = me?._id === a._id;
+              return (
+                <TR key={a._id}>
+                  <TD className="font-medium">{a.name}</TD>
+                  <TD className="text-muted-foreground">{a.email}</TD>
+                  <TD>{ROLE_LABEL[a.role as Role]}</TD>
+                  <TD className="text-muted-foreground">{formatDate(a.createdAt)}</TD>
+                  <TD>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setEditing(a as Admin)}
+                        aria-label={`Edit ${a.name}`}
+                        title="Edit"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setResetting(a as Admin)}
+                        aria-label={`Reset kata sandi ${a.name}`}
+                        title="Reset kata sandi"
+                      >
+                        <KeyRound className="h-4 w-4" />
+                      </Button>
+                      {!self && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => onRemove(a._id, a.name)}
+                          aria-label="Hapus admin"
+                          title="Hapus"
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      )}
+                    </div>
+                  </TD>
+                </TR>
+              );
+            })}
             {admins && admins.length === 0 && (
               <TR>
                 <TD colSpan={5} className="py-8 text-center text-muted-foreground">
@@ -342,7 +358,172 @@ function AdminUsersCard() {
           </TBody>
         </Table>
       </CardContent>
+
+      {editing && (
+        <EditAdminDialog admin={editing} onClose={() => setEditing(null)} />
+      )}
+      {resetting && (
+        <ResetPasswordDialog admin={resetting} onClose={() => setResetting(null)} />
+      )}
     </Card>
+  );
+}
+
+/**
+ * Edit an admin's name and role. A super admin may edit their own name but the
+ * role field is disabled on their own row (backend rejects self role-change).
+ */
+function EditAdminDialog({
+  admin,
+  onClose,
+}: {
+  admin: Admin;
+  onClose: () => void;
+}) {
+  const update = useMutation(api.admins.update);
+  const me = useQuery(api.admins.me);
+  const [name, setName] = useState(admin.name);
+  const [role, setRole] = useState<Role>(admin.role);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const self = me?._id === admin._id;
+
+  async function submit() {
+    setErr(null);
+    if (name.trim().length < 2) {
+      setErr("Nama minimal 2 karakter.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await update({ adminProfileId: admin._id, name, role });
+      onClose();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Gagal menyimpan.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit admin</DialogTitle>
+          <DialogDescription>{admin.email}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="edit-name">Nama</Label>
+            <Input
+              id="edit-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="edit-role">Peran</Label>
+            <Select
+              id="edit-role"
+              value={role}
+              disabled={self}
+              onChange={(e) => setRole(e.target.value as Role)}
+            >
+              <option value="ops_admin">Ops Admin</option>
+              <option value="finance_admin">Finance Admin</option>
+              <option value="super_admin">Super Admin</option>
+            </Select>
+            {self && (
+              <p className="text-xs text-muted-foreground">
+                Peran tidak bisa diubah untuk akun sendiri.
+              </p>
+            )}
+          </div>
+          {err && <p className="text-sm text-destructive">{err}</p>}
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={onClose} disabled={busy}>
+              Batal
+            </Button>
+            <Button onClick={submit} disabled={busy}>
+              {busy && <Loader2 className="animate-spin" />}
+              Simpan
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Reset an admin's password. The admin sets a new password directly and shares
+ * it out of band (same model as the initial password on `invite`). The backend
+ * invalidates all of the target's sessions, so they must sign in again.
+ */
+function ResetPasswordDialog({
+  admin,
+  onClose,
+}: {
+  admin: Admin;
+  onClose: () => void;
+}) {
+  const resetPassword = useAction(api.admins.resetPassword);
+  const [password, setPassword] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    setErr(null);
+    if (password.length < 8) {
+      setErr("Kata sandi minimal 8 karakter.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await resetPassword({ email: admin.email, password });
+      onClose();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Gagal mengatur ulang sandi.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Reset kata sandi</DialogTitle>
+          <DialogDescription>
+            {admin.name} ({admin.email}) akan keluar dari semua perangkat dan
+            wajib masuk lagi dengan kata sandi baru.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="reset-pass">Kata sandi baru (≥8)</Label>
+            <Input
+              id="reset-pass"
+              type="text"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Minimal 8 karakter"
+            />
+          </div>
+          {err && <p className="text-sm text-destructive">{err}</p>}
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={onClose} disabled={busy}>
+              Batal
+            </Button>
+            <Button onClick={submit} disabled={busy}>
+              {busy && <Loader2 className="animate-spin" />}
+              Reset kata sandi
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
