@@ -35,7 +35,7 @@ const NAV: {
   { href: "/", label: "Ringkasan", icon: LayoutDashboard },
   { href: "/agents", label: "User Management", icon: Users },
   { href: "/codes", label: "Kode Langganan", icon: Ticket },
-  { href: "/commissions", label: "Komisi", icon: Wallet },
+  { href: "/reports", label: "Laporan", icon: Wallet },
   {
     href: "/settings",
     label: "Parameter",

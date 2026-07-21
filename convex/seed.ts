@@ -1,6 +1,9 @@
-import { internalMutation, mutation } from "./_generated/server";
+import { action, internalMutation, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import { createAccount } from "@convex-dev/auth/server";
+import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
+import { resolveUpline, computeCommissionEntries } from "./lib/commission";
 
 // Full systemParameters defaults (PRD §3). Includes Phase 2/3 keys so the
 // parameter set is consistent from day one — Phase 1 only WIRES a subset.
@@ -283,7 +286,9 @@ export const run = internalMutation({
 
     const now = Date.now();
 
-    // Agents — mix of levels and statuses across regions.
+    // Agents — mix of levels and statuses across regions. `referrerIdx` wires
+    // the demo upline chain so L2/L3 overrides actually populate in the engine-
+    // driven ledger below: Agus (L3) ← Budi+Siti (L2) ← regional L1s.
     const agentDefs: {
       name: string;
       phone: string;
@@ -294,21 +299,22 @@ export const run = internalMutation({
       feePaid?: boolean;
       escrow?: number;
       lastActiveDaysAgo?: number;
+      referrerIdx?: number; // index into agentDefs (must be defined earlier)
     }[] = [
-      { name: "Budi Santoso", phone: "081200000001", level: 2, status: "active", region: JKT, enrolledDaysAgo: 540, feePaid: true, lastActiveDaysAgo: 1 },
-      { name: "Siti Rahayu", phone: "081200000002", level: 2, status: "active", region: SBY, enrolledDaysAgo: 480, feePaid: true, lastActiveDaysAgo: 2 },
+      { name: "Budi Santoso", phone: "081200000001", level: 2, status: "active", region: JKT, enrolledDaysAgo: 540, feePaid: true, lastActiveDaysAgo: 1, referrerIdx: 2 }, // → Agus (L3)
+      { name: "Siti Rahayu", phone: "081200000002", level: 2, status: "active", region: SBY, enrolledDaysAgo: 480, feePaid: true, lastActiveDaysAgo: 2, referrerIdx: 2 }, // → Agus (L3)
       { name: "Agus Wijaya", phone: "081200000003", level: 3, status: "active", region: JKT, enrolledDaysAgo: 720, feePaid: true, lastActiveDaysAgo: 3 },
-      { name: "Dewi Lestari", phone: "081200000004", level: 1, status: "active", region: JKT, enrolledDaysAgo: 220, feePaid: true, lastActiveDaysAgo: 1 },
-      { name: "Eko Prasetyo", phone: "081200000005", level: 1, status: "active", region: SBY, enrolledDaysAgo: 200, feePaid: true, lastActiveDaysAgo: 4 },
+      { name: "Dewi Lestari", phone: "081200000004", level: 1, status: "active", region: JKT, enrolledDaysAgo: 220, feePaid: true, lastActiveDaysAgo: 1, referrerIdx: 0 }, // → Budi (L2)
+      { name: "Eko Prasetyo", phone: "081200000005", level: 1, status: "active", region: SBY, enrolledDaysAgo: 200, feePaid: true, lastActiveDaysAgo: 4, referrerIdx: 1 }, // → Siti (L2)
       { name: "Fitri Handayani", phone: "081200000006", level: 1, status: "dormant", region: BDG, enrolledDaysAgo: 300, feePaid: true, lastActiveDaysAgo: 40 },
       { name: "Gunawan Saputra", phone: "081200000007", level: 1, status: "active", region: BDG, enrolledDaysAgo: 150, feePaid: true, lastActiveDaysAgo: 2 },
-      { name: "Hesti Kurnia", phone: "081200000008", level: 1, status: "probation", region: JKT, enrolledDaysAgo: 20, escrow: 180000 },
-      { name: "Indra Permana", phone: "081200000009", level: 1, status: "probation", region: SBY, enrolledDaysAgo: 12, escrow: 90000 },
+      { name: "Hesti Kurnia", phone: "081200000008", level: 1, status: "probation", region: JKT, enrolledDaysAgo: 20, escrow: 180000, referrerIdx: 0 }, // → Budi
+      { name: "Indra Permana", phone: "081200000009", level: 1, status: "probation", region: SBY, enrolledDaysAgo: 12, escrow: 90000, referrerIdx: 1 }, // → Siti
       { name: "Joko Susilo", phone: "081200000010", level: 1, status: "inactive", region: BDG, enrolledDaysAgo: 410, feePaid: true, lastActiveDaysAgo: 120 },
-      { name: "Kartika Sari", phone: "081200000011", level: 1, status: "active", region: JKT, enrolledDaysAgo: 95, feePaid: true, lastActiveDaysAgo: 1 },
-      { name: "Lukman Hakim", phone: "081200000012", level: 1, status: "suspended", region: SBY, enrolledDaysAgo: 260, feePaid: true, lastActiveDaysAgo: 70 },
+      { name: "Kartika Sari", phone: "081200000011", level: 1, status: "active", region: JKT, enrolledDaysAgo: 95, feePaid: true, lastActiveDaysAgo: 1, referrerIdx: 0 }, // → Budi
+      { name: "Lukman Hakim", phone: "081200000012", level: 1, status: "suspended", region: SBY, enrolledDaysAgo: 260, feePaid: true, lastActiveDaysAgo: 70, referrerIdx: 1 }, // → Siti
       { name: "Maya Anggraini", phone: "081200000013", level: 1, status: "active", region: BDG, enrolledDaysAgo: 70, feePaid: true, lastActiveDaysAgo: 3 },
-      { name: "Nanda Pratama", phone: "081200000014", level: 1, status: "dormant", region: JKT, enrolledDaysAgo: 180, feePaid: true, lastActiveDaysAgo: 35 },
+      { name: "Nanda Pratama", phone: "081200000014", level: 1, status: "dormant", region: JKT, enrolledDaysAgo: 180, feePaid: true, lastActiveDaysAgo: 35, referrerIdx: 0 }, // → Budi
       { name: "Oka Mahendra", phone: "081200000015", level: 1, status: "probation", region: BDG, enrolledDaysAgo: 5, escrow: 30000 },
     ];
 
@@ -328,11 +334,14 @@ export const run = internalMutation({
             ? now - a.lastActiveDaysAgo * DAY
             : undefined,
         suspendedAt: a.status === "suspended" ? now - 70 * DAY : undefined,
+        referrerId: a.referrerIdx !== undefined ? agentIds[a.referrerIdx] : undefined,
       });
       agentIds.push(id);
     }
 
-    // Licenses (merchants) — distributed across L1 agents.
+    // Licenses (merchants) — distributed across L1 agents. Each license gets a
+    // linked `agent`-channel subscriptionCode so reports can classify revenue by
+    // channel and the commission engine has the same inputs as production.
     const tierPool: ("monthly" | "annual" | "lifetime")[] = [
       "monthly",
       "monthly",
@@ -341,16 +350,36 @@ export const run = internalMutation({
       "lifetime",
     ];
     let licCounter = 0;
+    let licenseCodeSeq = 5000;
     const l1Agents = agentDefs
       .map((a, i) => ({ ...a, id: agentIds[i] }))
       .filter((a) => a.level === 1 && a.status !== "probation");
+    const seededLicenseIds: Id<"licenses">[] = [];
     for (const a of l1Agents) {
       const count =
         a.status === "active" ? 6 : a.status === "dormant" ? 3 : 1;
       for (let i = 0; i < count; i++) {
         const tier = tierPool[(licCounter + i) % tierPool.length];
+        const lifetimeKind: "solo" | undefined = tier === "lifetime" ? "solo" : undefined;
         const activatedAt = now - ((i * 13) % 85) * DAY;
-        await ctx.db.insert("licenses", {
+        const priceIDR = seedTierPrice(tier, lifetimeKind);
+
+        // Matching agent-channel code, already activated, so revenue-by-channel
+        // sees these activations as `agent`-channel revenue.
+        const block = (licenseCodeSeq++).toString().padStart(5, "0");
+        const codeId = await ctx.db.insert("subscriptionCodes", {
+          code: `SM-SEED-${block.slice(0, 4)}-${block}`,
+          tier,
+          lifetimeKind,
+          channel: "agent",
+          status: "active",
+          agentId: a.id,
+          regionId: a.region,
+          activatedAt,
+          priceIDR,
+        });
+
+        const licenseId = await ctx.db.insert("licenses", {
           deviceId: `dev-${a.phone}-${i}`,
           agentId: a.id,
           tier,
@@ -363,26 +392,43 @@ export const run = internalMutation({
           gracePeriodDays: 3,
           status: "active",
           regionId: a.region,
-          priceIDR: seedTierPrice(tier),
+          codeId,
+          priceIDR,
         });
+        seededLicenseIds.push(licenseId);
+
+        // Engine-driven commission: identical path to a live activation.
+        const upline = await resolveUpline(ctx, a.id);
+        const entries = await computeCommissionEntries(ctx, upline, {
+          licenseId,
+          tier,
+          priceIDR,
+          regionId: a.region,
+          activatedAt,
+          lifetimeKind,
+        });
+        for (const e of entries) await ctx.db.insert("commissionLedger", e);
       }
       licCounter += count;
     }
 
-    // Commission ledger — L1 residuals/closings for agents with merchants.
-    const typePool: ("l1_residual" | "l1_closing")[] = [
-      "l1_residual",
-      "l1_closing",
-    ];
-    for (const a of l1Agents) {
-      const entries = a.status === "active" ? 5 : a.status === "dormant" ? 2 : 1;
-      for (let i = 0; i < entries; i++) {
-        await ctx.db.insert("commissionLedger", {
-          agentId: a.id,
-          type: typePool[i % 2],
-          amount: BigInt([27600, 150000, 20700, 13800, 100000][i % 5]),
-          status: i === 0 ? "pending" : "settled",
-        });
+    // Settle the oldest ~half of each active agent's entries under a demo
+    // payoutId so the Payout Runs history pane has something to show. Everything
+    // else stays `pending` and shows up in the next-run preview.
+    const demoPayoutId = `monthly-demo-${new Date(now).toISOString().slice(0, 7)}`;
+    for (const a of l1Agents.filter((a) => a.status === "active")) {
+      const pending = await ctx.db
+        .query("commissionLedger")
+        .withIndex("by_agent_status", (q) =>
+          q.eq("agentId", a.id).eq("status", "pending"),
+        )
+        .collect();
+      // Settle all but the 3 newest.
+      const toSettle = pending
+        .sort((x, y) => x._creationTime - y._creationTime)
+        .slice(0, Math.max(0, pending.length - 3));
+      for (const e of toSettle) {
+        await ctx.db.patch(e._id, { status: "settled", payoutId: demoPayoutId });
       }
     }
 
@@ -423,6 +469,55 @@ export const run = internalMutation({
       parameters: Object.keys(PARAMS).length,
       regions: regions.length,
       agents: agentIds.length,
+    };
+  },
+});
+
+/**
+ * First-admin bootstrap for a fresh local backend. Creates a Convex Auth
+ * user (email + password) and links it to a super_admin profile in one shot.
+ * Run this once after `seed:run`, then log in at /login.
+ *
+ * Usage:
+ *   npx convex run seed:bootstrap --args '{"email":"admin@test.com","name":"Admin","password":"admin1234"}'
+ */
+export const bootstrap = action({
+  args: {
+    email: v.string(),
+    name: v.string(),
+    password: v.string(),
+  },
+  handler: async (ctx, { email, name, password }) => {
+    const normalized = email.trim().toLowerCase();
+    if (!normalized.includes("@")) throw new Error("Email tidak valid.");
+    if (password.length < 8) throw new Error("Kata sandi minimal 8 karakter.");
+
+    let user;
+    try {
+      ({ user } = await createAccount(ctx, {
+        provider: "password",
+        account: { id: normalized, secret: password },
+        profile: { email: normalized },
+      }));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      if (msg.includes("already exists"))
+        throw new Error(`Email ${normalized} sudah terdaftar.`);
+      throw err;
+    }
+
+    // Reuse the existing admins.attachProfile internal mutation instead of
+    // duplicating the adminProfiles insert logic here.
+    await ctx.runMutation(internal.admins.attachProfile, {
+      authUserId: user._id,
+      name: name.trim(),
+      role: "super_admin",
+    });
+
+    return {
+      email: normalized,
+      name: name.trim(),
+      role: "super_admin",
     };
   },
 });

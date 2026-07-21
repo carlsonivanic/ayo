@@ -13,10 +13,12 @@ import type * as agentAuth from "../agentAuth.js";
 import type * as agentInvites from "../agentInvites.js";
 import type * as agents from "../agents.js";
 import type * as auth from "../auth.js";
+import type * as backfill from "../backfill.js";
 import type * as codes from "../codes.js";
 import type * as commissions from "../commissions.js";
 import type * as http from "../http.js";
 import type * as lib_codegen from "../lib/codegen.js";
+import type * as lib_commission from "../lib/commission.js";
 import type * as lib_licenseToken from "../lib/licenseToken.js";
 import type * as lib_money from "../lib/money.js";
 import type * as licenses from "../licenses.js";
@@ -29,7 +31,9 @@ import type * as portal_merchants from "../portal/merchants.js";
 import type * as portal_notifications from "../portal/notifications.js";
 import type * as regions from "../regions.js";
 import type * as registration from "../registration.js";
+import type * as reports from "../reports.js";
 import type * as seed from "../seed.js";
+import type * as testHelpers from "../testHelpers.js";
 
 import type {
   ApiFromModules,
@@ -43,10 +47,12 @@ declare const fullApi: ApiFromModules<{
   agentInvites: typeof agentInvites;
   agents: typeof agents;
   auth: typeof auth;
+  backfill: typeof backfill;
   codes: typeof codes;
   commissions: typeof commissions;
   http: typeof http;
   "lib/codegen": typeof lib_codegen;
+  "lib/commission": typeof lib_commission;
   "lib/licenseToken": typeof lib_licenseToken;
   "lib/money": typeof lib_money;
   licenses: typeof licenses;
@@ -59,7 +65,9 @@ declare const fullApi: ApiFromModules<{
   "portal/notifications": typeof portal_notifications;
   regions: typeof regions;
   registration: typeof registration;
+  reports: typeof reports;
   seed: typeof seed;
+  testHelpers: typeof testHelpers;
 }>;
 
 /**
