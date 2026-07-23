@@ -2,6 +2,47 @@ import { internalMutation, internalQuery, MutationCtx } from "./_generated/serve
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 import { getParamNumber, getTierDurationDays, getTierPriceIDR } from "./params";
+import { resolveUpline, computeCommissionEntries } from "./lib/commission";
+
+/**
+ * Idempotently write the commission entries for a freshly-activated license.
+ * Skips silently if the license already has ledger rows (re-activation, retry,
+ * or a backfill that already covered it). Never throws on missing agent.
+ */
+async function writeCommissionOnActivation(
+  ctx: MutationCtx,
+  args: {
+    licenseId: Id<"licenses">;
+    agentId: Id<"agents"> | null;
+    tier: "daily" | "weekly" | "monthly" | "annual" | "lifetime";
+    priceIDR: bigint;
+    regionId: Id<"regions">;
+    activatedAt: number;
+    lifetimeKind?: "solo" | "duo";
+  },
+): Promise<void> {
+  if (args.agentId === null) return; // self-serve, no seller to pay
+
+  // Idempotency: if any ledger row already references this license, do nothing.
+  const existing = await ctx.db
+    .query("commissionLedger")
+    .withIndex("by_license", (q) => q.eq("licenseId", args.licenseId))
+    .first();
+  if (existing) return;
+
+  const upline = await resolveUpline(ctx, args.agentId);
+  const entries = await computeCommissionEntries(ctx, upline, {
+    licenseId: args.licenseId,
+    tier: args.tier,
+    priceIDR: args.priceIDR,
+    regionId: args.regionId,
+    activatedAt: args.activatedAt,
+    lifetimeKind: args.lifetimeKind,
+  });
+  for (const e of entries) {
+    await ctx.db.insert("commissionLedger", e);
+  }
+}
 
 // ~100 years out — the token payload Sellmore verifies is purely calendar-based
 // (it has no "lifetime" concept), so a lifetime license is expressed as a
@@ -172,6 +213,20 @@ async function activateCore(
   }
 
   await ctx.db.patch(codeId, { status: "active", activatedAt: now });
+
+  // Commission accrues on first activation only (not renewals). The
+  // idempotency guard inside makes this safe even if activation is retried.
+  if (!existing) {
+    await writeCommissionOnActivation(ctx, {
+      licenseId,
+      agentId: code.agentId ?? null,
+      tier: code.tier,
+      priceIDR,
+      regionId: code.regionId,
+      activatedAt: now,
+      lifetimeKind: code.lifetimeKind,
+    });
+  }
 
   // Collapse to a single calendar "active until" for the POS token.
   let effectiveActiveUntil: number;

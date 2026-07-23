@@ -185,14 +185,12 @@ function CodeRow({
 }
 
 function GenerateForm() {
-  const regions = useQuery(api.regions.list);
   const agents = useQuery(api.agents.listAgents, {});
   const prices = useQuery(api.params.tierPrices);
   const generate = useMutation(api.codes.generateCode);
 
   const [tier, setTier] = useState("monthly");
   const [channel, setChannel] = useState("agent");
-  const [regionId, setRegionId] = useState("");
   const [agentId, setAgentId] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [batchId, setBatchId] = useState("");
@@ -204,7 +202,6 @@ function GenerateForm() {
     e.preventDefault();
     setErr(null);
     setResult(null);
-    if (!regionId) return setErr("Pilih wilayah.");
     setBusy(true);
     try {
       const isLifetime = tier.startsWith("lifetime");
@@ -212,7 +209,6 @@ function GenerateForm() {
         tier: isLifetime ? "lifetime" : (tier as Tier),
         lifetimeKind: tier === "lifetime_duo" ? "duo" : tier === "lifetime_solo" ? "solo" : undefined,
         channel: channel as Channel,
-        regionId: regionId as Id<"regions">,
         agentId: agentId ? (agentId as Id<"agents">) : undefined,
         quantity: Number(quantity) || 1,
         batchId: batchId.trim() || undefined,
@@ -266,20 +262,6 @@ function GenerateForm() {
               <option value="self_serve">Self-serve</option>
             </Select>
           </Field>
-          <Field label="Wilayah">
-            <Select
-              className={fieldClass}
-              value={regionId}
-              onChange={(e) => setRegionId(e.target.value)}
-            >
-              <option value="">Pilih wilayah…</option>
-              {regions?.map((r) => (
-                <option key={r._id} value={r._id}>
-                  {r.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
           <Field label="Agen (opsional)">
             <Select
               className={fieldClass}
@@ -289,7 +271,7 @@ function GenerateForm() {
               <option value="">— tanpa agen —</option>
               {agents?.map((a) => (
                 <option key={a._id} value={a._id}>
-                  {a.name} ({a.regionCode})
+                  {a.name}
                 </option>
               ))}
             </Select>

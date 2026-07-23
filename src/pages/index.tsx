@@ -1,7 +1,7 @@
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Layout } from "@/components/Layout";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Kpi } from "@/components/ui/kpi";
 import { formatIDR } from "@/lib/format";
 import {
   Users,
@@ -11,33 +11,6 @@ import {
   Ticket,
   Clock,
 } from "lucide-react";
-
-function Kpi({
-  label,
-  value,
-  icon: Icon,
-  hint,
-}: {
-  label: string;
-  value: string;
-  icon: typeof Users;
-  hint?: string;
-}) {
-  return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">
-          {label}
-        </CardTitle>
-        <Icon className="h-4 w-4 text-muted-foreground" />
-      </CardHeader>
-      <CardContent>
-        <div className="text-2xl font-semibold">{value}</div>
-        {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
-      </CardContent>
-    </Card>
-  );
-}
 
 export default function OverviewPage() {
   const kpis = useQuery(api.overview.kpis);

@@ -6,9 +6,13 @@ import { Authenticated, Unauthenticated, AuthLoading } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Loader2, LogOut, ShieldAlert } from "lucide-react";
+import { TEST_BYPASS_ENABLED } from "@/lib/testBypass";
 
-/** Pages anyone may reach without being signed in. */
-const PUBLIC_PATHS = ["/welcome", "/login", "/daftar", "/app/login"];
+/** Pages anyone may reach without being signed in.
+ *  `/simulator` is the public recruitment tool — opened by a recruiter with a
+ *  prospect, no login needed. Pure client-side math, no Convex queries.
+ *  `/simulator/settings` edits the simulator's business constants (localStorage). */
+const PUBLIC_PATHS = ["/login", "/daftar", "/undangan/[token]", "/simulator", "/simulator/settings"];
 
 function isAgentPath(pathname: string) {
   return pathname === "/app" || pathname.startsWith("/app/");
@@ -94,9 +98,9 @@ function Gate({ children }: { children: ReactNode }) {
   return <PendingScreen />;
 }
 
-function RedirectToWelcome() {
+function RedirectToLogin() {
   const router = useRouter();
-  if (typeof window !== "undefined") router.replace("/welcome");
+  if (typeof window !== "undefined") router.replace("/login");
   return <Spinner />;
 }
 
@@ -106,13 +110,18 @@ export function RouteGuard({ children }: { children: ReactNode }) {
   // Login / public pages render without any auth gating.
   if (PUBLIC_PATHS.includes(router.pathname)) return <>{children}</>;
 
+  // TEST BYPASS: skip the Convex Auth flow entirely. The backend gates every
+  // query/mutation via getCurrentAdmin (which returns the test super_admin
+  // when TEST_BYPASS=true on the server), so the page works without a session.
+  if (TEST_BYPASS_ENABLED) return <>{children}</>;
+
   return (
     <>
       <AuthLoading>
         <Spinner />
       </AuthLoading>
       <Unauthenticated>
-        <RedirectToWelcome />
+        <RedirectToLogin />
       </Unauthenticated>
       <Authenticated>
         <Gate>{children}</Gate>

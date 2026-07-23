@@ -1,8 +1,7 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useAction, useQuery } from "convex/react";
+import { useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,37 +12,55 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Select } from "@/components/ui/select";
-import { Loader2, CheckCircle2 } from "lucide-react";
+import { Loader2, CheckCircle2, MapPin } from "lucide-react";
+import { lookupGeoHint } from "@/lib/geoRegion";
+import { BuildIdStamp } from "@/components/BuildIdStamp";
 
 export default function DaftarPage() {
-  const regions = useQuery(api.regions.listPublic);
   const register = useAction(api.registration.registerAgent);
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [phone, setPhone] = useState("");
-  const [regionId, setRegionId] = useState<string>("");
   const [referrerPhone, setReferrerPhone] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+
+  // Region is auto-resolved from the user's IP geo location (silently). The
+  // user never picks a wilayah — the backend find-or-creates one from this
+  // hint, falling back to a default region on failure.
+  const [geoHint, setGeoHint] = useState<string | null>(null);
+  const [geoResolved, setGeoResolved] = useState(false);
 
   // Honeypot — hidden from real users, bots tend to fill it.
   const honeypotRef = useRef<HTMLInputElement>(null);
   // Track when the page loaded to detect instant bot submissions.
   const loadedAt = useRef(Date.now());
 
+  useEffect(() => {
+    let cancelled = false;
+    const controller = new AbortController();
+    lookupGeoHint(controller.signal)
+      .then((hint) => {
+        if (cancelled) return;
+        setGeoHint(hint);
+        setGeoResolved(true);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setGeoResolved(true); // still allow submit; backend defaults region
+      });
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, []);
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-
-    if (!regionId) {
-      setError("Pilih wilayah terlebih dahulu.");
-      return;
-    }
-
     setLoading(true);
     try {
       await register({
@@ -51,7 +68,7 @@ export default function DaftarPage() {
         email,
         password,
         phone,
-        regionId: regionId as Id<"regions">,
+        geoHint: geoHint ?? undefined,
         referrerPhone: referrerPhone.trim() || undefined,
         hp: honeypotRef.current?.value ?? "",
         elapsed: Date.now() - loadedAt.current,
@@ -77,13 +94,14 @@ export default function DaftarPage() {
               didaftarkan.
             </p>
             <Link
-              href="/app/login"
+              href="/login"
               className="inline-block text-sm font-medium text-primary underline"
             >
               Ke halaman masuk
             </Link>
           </CardContent>
         </Card>
+        <BuildIdStamp />
       </div>
     );
   }
@@ -166,23 +184,6 @@ export default function DaftarPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="region">Wilayah</Label>
-              <Select
-                id="region"
-                value={regionId}
-                onChange={(e) => setRegionId(e.target.value)}
-                required
-              >
-                <option value="">Pilih wilayah…</option>
-                {regions?.map((r) => (
-                  <option key={r._id} value={r._id}>
-                    {r.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
-
-            <div className="space-y-1.5">
               <Label htmlFor="referrer">
                 Nomor HP referral{" "}
                 <span className="text-muted-foreground font-normal">
@@ -198,6 +199,16 @@ export default function DaftarPage() {
               />
             </div>
 
+            {/* Auto-detected region status — informational only, not editable. */}
+            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <MapPin className="h-3.5 w-3.5" />
+              {geoResolved
+                ? geoHint
+                  ? `Wilayah terdeteksi: ${geoHint}`
+                  : "Menggunakan wilayah default"
+                : "Menentukan wilayah…"}
+            </p>
+
             {error && <p className="text-sm text-destructive">{error}</p>}
 
             <Button type="submit" className="w-full" disabled={loading}>
@@ -205,8 +216,15 @@ export default function DaftarPage() {
               Daftar Sekarang
             </Button>
           </form>
+          <p className="mt-4 text-center text-xs text-muted-foreground">
+            Sudah punya akun?{" "}
+            <Link href="/login" className="font-medium text-primary underline">
+              Masuk di sini
+            </Link>
+          </p>
         </CardContent>
       </Card>
+      <BuildIdStamp />
     </div>
   );
 }

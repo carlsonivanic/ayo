@@ -1,6 +1,7 @@
 import { QueryCtx, MutationCtx, query } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { Doc } from "./_generated/dataModel";
+import { testBypassAgent } from "./testBypass";
 
 /**
  * Salesperson (agent) identity for the Agent Portal. The Password auth provider
@@ -8,10 +9,15 @@ import { Doc } from "./_generated/dataModel";
  * is which profile table the auth user is linked to. A user is one OR the other,
  * never both: `getCurrentAdmin` resolves against `adminProfiles`, this resolves
  * against `agents.authUserId`.
+ *
+ * TEST BYPASS: when `TEST_BYPASS=true` is set on the deployment, returns a
+ * stable agent profile without checking auth — see convex/testBypass.ts.
  */
 export async function getCurrentAgent(
   ctx: QueryCtx | MutationCtx,
 ): Promise<Doc<"agents"> | null> {
+  const bypass = await testBypassAgent(ctx);
+  if (bypass) return bypass;
   const userId = await getAuthUserId(ctx);
   if (!userId) return null;
   return await ctx.db

@@ -26,7 +26,6 @@ export const createInvite = mutation({
     phone: v.string(),
     email: v.string(),
     level: v.number(),
-    regionId: v.id("regions"),
   },
   handler: async (ctx, args) => {
     const admin = await requireAdmin(ctx, ["ops_admin", "super_admin"]);
@@ -45,9 +44,10 @@ export const createInvite = mutation({
       .first();
     if (existingPhone) throw new Error("Nomor HP sudah terdaftar.");
 
-    const region = await ctx.db.get(args.regionId);
-    if (!region) throw new Error("Wilayah tidak ditemukan.");
-
+    // Region is intentionally NOT set here. It is resolved from the invitee's
+    // own IP geo location when they redeem the invite (see acceptInvite /
+    // redeemInvite), so the region reflects where the salesperson actually is
+    // — not where the admin happened to be when issuing the invite.
     const token = crypto.randomUUID().replace(/-/g, "");
     await ctx.db.insert("agentInvites", {
       token,
@@ -55,7 +55,6 @@ export const createInvite = mutation({
       phone,
       email,
       level: args.level,
-      regionId: args.regionId,
       createdBy: admin._id,
       expiresAt: Date.now() + INVITE_TTL_MS,
     });
@@ -130,8 +129,12 @@ export const getInviteForAccept = internalQuery({
  * freshly created auth user to a new, immediately-active `agents` row.
  */
 export const redeemInvite = internalMutation({
-  args: { inviteId: v.id("agentInvites"), authUserId: v.id("users") },
-  handler: async (ctx, { inviteId, authUserId }) => {
+  args: {
+    inviteId: v.id("agentInvites"),
+    authUserId: v.id("users"),
+    regionId: v.id("regions"),
+  },
+  handler: async (ctx, { inviteId, authUserId, regionId }) => {
     const invite = await ctx.db.get(inviteId);
     if (!invite) throw new Error("Undangan tidak ditemukan.");
     if (invite.usedAt) throw new Error("Undangan sudah dipakai.");
@@ -150,7 +153,9 @@ export const redeemInvite = internalMutation({
       phone: invite.phone,
       level: invite.level,
       status: "active",
-      regionId: invite.regionId,
+      // Resolved from the invitee's own IP geo at redemption time, not the
+      // admin's pick at creation (the invite no longer carries a regionId).
+      regionId,
       enrolledAt: Date.now(),
       feePaidAt: Date.now(),
       escrowAmount: 0n,
@@ -175,8 +180,14 @@ export const redeemInvite = internalMutation({
  * hashing) needs an action context; the agent row is written via `redeemInvite`.
  */
 export const acceptInvite = action({
-  args: { token: v.string(), password: v.string() },
-  handler: async (ctx, { token, password }): Promise<{ ok: true }> => {
+  args: {
+    token: v.string(),
+    password: v.string(),
+    // Free-text geo hint (city) from the invitee's IP, captured client-side.
+    // Resolved find-or-create via `regions.ensureRegion`; empty → default.
+    geoHint: v.optional(v.string()),
+  },
+  handler: async (ctx, { token, password, geoHint }): Promise<{ ok: true }> => {
     if (password.length < 8)
       throw new Error("Kata sandi minimal 8 karakter.");
 
@@ -188,6 +199,12 @@ export const acceptInvite = action({
     if (invite.usedAt) throw new Error("Tautan undangan sudah dipakai.");
     if (invite.expiresAt < Date.now())
       throw new Error("Tautan undangan sudah kedaluwarsa.");
+
+    // Resolve the invitee's region from their own IP geo location. Done before
+    // account creation so a geo failure can't orphan a half-created user.
+    const regionId = await ctx.runMutation(internal.regions.ensureRegion, {
+      hint: geoHint,
+    });
 
     let user;
     try {
@@ -207,6 +224,7 @@ export const acceptInvite = action({
       await ctx.runMutation(internal.agentInvites.redeemInvite, {
         inviteId: invite._id,
         authUserId: user._id,
+        regionId,
       });
     } catch (err) {
       await ctx.runMutation(internal.registration.rollbackUser, {

@@ -7,7 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { BuildIdStamp } from "@/components/BuildIdStamp";
 import { Loader2 } from "lucide-react";
+import { TEST_BYPASS_ENABLED } from "@/lib/testBypass";
 
 function LoginForm() {
   const { signIn } = useAuthActions();
@@ -21,8 +23,9 @@ function LoginForm() {
     setError(null);
     setLoading(true);
     try {
-      // Sign-in only. New admins are provisioned by a super admin
-      // (admins.invite); there is no self-serve registration.
+      // Single sign-in for everyone. RouteGuard resolves which app the user
+      // belongs to (admin console at "/" or salesperson portal at "/app")
+      // and redirects there after the auth session is established.
       await signIn("password", { email, password, flow: "signIn" });
     } catch {
       setError("Email atau kata sandi salah.");
@@ -38,9 +41,10 @@ function LoginForm() {
           <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-md bg-primary text-sm font-bold text-primary-foreground">
             AYO
           </div>
-          <CardTitle>Admin Console</CardTitle>
+          <CardTitle>Masuk ke AYO</CardTitle>
           <CardDescription>
-            Masuk untuk mengelola jaringan agen Sell More.
+            Masuk dengan email & kata sandi kamu. Admin dan salesperson masuk
+            lewat sini — kami mengarahkan kamu ke dashboard yang sesuai.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -74,22 +78,27 @@ function LoginForm() {
             </Button>
           </form>
           <p className="mt-4 text-center text-xs text-muted-foreground">
-            Akun admin dibuatkan oleh super admin. Hubungi super admin jika
-            butuh akses.
-          </p>
-          <p className="mt-2 text-center text-xs text-muted-foreground">
-            <Link href="/welcome" className="underline">
-              ← Pilihan masuk lain
+            Belum punya akun salesperson?{" "}
+            <Link href="/daftar" className="font-medium text-primary underline">
+              Daftar di sini
             </Link>
           </p>
         </CardContent>
       </Card>
+      <BuildIdStamp />
     </div>
   );
 }
 
 export default function LoginPage() {
   const router = useRouter();
+
+  // TEST BYPASS: no sign-in needed — bounce straight to the admin console.
+  if (TEST_BYPASS_ENABLED) {
+    if (typeof window !== "undefined") router.replace("/");
+    return null;
+  }
+
   return (
     <>
       <Authenticated>

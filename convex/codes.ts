@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { requireAdmin } from "./admins";
 import { generateCodeString } from "./lib/codegen";
 import { getParamNumber, getTierPriceIDR } from "./params";
+import { defaultRegionId } from "./regions";
 import { Id } from "./_generated/dataModel";
 
 const tierValidator = v.union(
@@ -60,25 +61,29 @@ export const generateCode = mutation({
     tier: tierValidator,
     lifetimeKind: v.optional(v.union(v.literal("solo"), v.literal("duo"))),
     channel: channelValidator,
-    regionId: v.id("regions"),
+    // Optional since the admin UI no longer picks a wilayah; defaults to the
+    // canonical fallback region (JKT). Can still be supplied explicitly for
+    // future region-aware inventory generation.
+    regionId: v.optional(v.id("regions")),
     agentId: v.optional(v.id("agents")),
     quantity: v.optional(v.number()),
     batchId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const admin = await requireAdmin(ctx, ["ops_admin", "super_admin"]);
-    const region = await ctx.db.get(args.regionId);
+    const regionId = args.regionId ?? (await defaultRegionId(ctx));
+    const region = await ctx.db.get(regionId);
     if (!region) throw new Error("region not found");
 
     const unusedDays =
-      (await getParamNumber(ctx, "code_unused_expiry_days", args.regionId)) ?? 90;
+      (await getParamNumber(ctx, "code_unused_expiry_days", regionId)) ?? 90;
     const expiresUnusedAt = Date.now() + unusedDays * 86400000;
 
     const base = {
       channel: args.channel,
       agentId: args.agentId,
       batchId: args.batchId,
-      regionId: args.regionId,
+      regionId,
       expiresUnusedAt,
       createdBy: admin._id,
     };
@@ -86,7 +91,7 @@ export const generateCode = mutation({
     // Lifetime Duo: a linked pair with a 24–48h pairing window.
     if (args.tier === "lifetime" && args.lifetimeKind === "duo") {
       const duoWindowHours =
-        (await getParamNumber(ctx, "lifetime_duo_window_hours", args.regionId)) ??
+        (await getParamNumber(ctx, "lifetime_duo_window_hours", regionId)) ??
         48;
       const duoExpiresAt = Date.now() + duoWindowHours * 3600000;
       // Snapshot the bundle price now and split it evenly so summing priceIDR
@@ -95,7 +100,7 @@ export const generateCode = mutation({
         ctx,
         "lifetime",
         "duo",
-        args.regionId,
+        regionId,
       );
       const firstHalf = duoTotal / 2n;
       const secondHalf = duoTotal - firstHalf; // keeps odd amounts exact
@@ -129,7 +134,7 @@ export const generateCode = mutation({
       ctx,
       args.tier,
       lifetimeKind,
-      args.regionId,
+      regionId,
     );
     const codes: string[] = [];
     for (let i = 0; i < quantity; i++) {

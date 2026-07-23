@@ -22,9 +22,19 @@ import {
   LogOut,
   Loader2,
   Menu,
+  AlertTriangle,
 } from "lucide-react";
+import { TEST_BYPASS_ENABLED } from "@/lib/testBypass";
 
 type Role = "super_admin" | "finance_admin" | "ops_admin";
+
+/** Stand-in admin identity used when TEST_BYPASS_ENABLED — avoids querying the
+ *  backend for `me` (the Convex client may never resolve it without a session). */
+const BYPASS_ME = {
+  _id: "test-bypass" as never,
+  name: "Test Super Admin",
+  role: "super_admin" as Role,
+};
 
 const NAV: {
   href: string;
@@ -35,7 +45,7 @@ const NAV: {
   { href: "/", label: "Ringkasan", icon: LayoutDashboard },
   { href: "/agents", label: "User Management", icon: Users },
   { href: "/codes", label: "Kode Langganan", icon: Ticket },
-  { href: "/commissions", label: "Komisi", icon: Wallet },
+  { href: "/reports", label: "Laporan", icon: Wallet },
   {
     href: "/settings",
     label: "Parameter",
@@ -53,8 +63,13 @@ const ROLE_LABEL: Record<Role, string> = {
 function Shell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const { signOut } = useAuthActions();
-  const me = useQuery(api.admins.me);
-  const agentMe = useQuery(api.agentAuth.me);
+  // Hooks must run unconditionally (rules-of-hooks). When the bypass is on we
+  // ignore these results and substitute the hardcoded bypass identity below —
+  // the backend authorizes every call via getCurrentAdmin regardless.
+  const meQuery = useQuery(api.admins.me);
+  const agentMeQuery = useQuery(api.agentAuth.me);
+  const me = TEST_BYPASS_ENABLED ? BYPASS_ME : meQuery;
+  const agentMe = TEST_BYPASS_ENABLED ? null : agentMeQuery;
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   // Not an admin. A salesperson account belongs in the Agent Portal.
@@ -97,9 +112,13 @@ function Shell({ children }: { children: ReactNode }) {
 
   const brand = (
     <div className="flex h-14 items-center gap-2 border-b px-5">
-      <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground">
+      <Link
+        href="/"
+        aria-label="Beranda"
+        className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground transition-opacity hover:opacity-90"
+      >
         AYO
-      </div>
+      </Link>
       <span className="text-sm font-semibold">Admin Console</span>
     </div>
   );
@@ -134,18 +153,10 @@ function Shell({ children }: { children: ReactNode }) {
 
   const footer = (
     <div className="border-t p-3">
-      <div className="px-2 pb-2 text-xs text-muted-foreground">
+      <div className="px-2 pb-1 text-xs text-muted-foreground">
         <div className="font-medium text-foreground">{me?.name}</div>
         {role ? ROLE_LABEL[role] : ""}
       </div>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="w-full justify-start"
-        onClick={() => signOut()}
-      >
-        <LogOut /> Keluar
-      </Button>
     </div>
   );
 
@@ -173,9 +184,13 @@ function Shell({ children }: { children: ReactNode }) {
             </SheetContent>
           </Sheet>
           <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground">
+            <Link
+              href="/"
+              aria-label="Beranda"
+              className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground transition-opacity hover:opacity-90"
+            >
               AYO
-            </div>
+            </Link>
             <span className="text-sm font-semibold">Admin Console</span>
           </div>
         </header>
@@ -199,6 +214,45 @@ export function Layout({
 }) {
   const router = useRouter();
 
+  // The page content + banner. Extracted so the bypass path and the normal
+  // auth-wrapped path render the exact same chrome.
+  const content = (
+    <Shell>
+      <div className="mx-auto max-w-7xl px-6 py-6">
+        {TEST_BYPASS_ENABLED && (
+          <div className="mb-4 flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <span>
+              <strong>TEST BYPASS aktif.</strong> Autentikasi dilewati —
+              semua halaman diakses sebagai super_admin tanpa login. Matikan
+              via <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/60">NEXT_PUBLIC_TEST_BYPASS</code> dan{" "}
+              <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/60">TEST_BYPASS</code> sebelum production.
+            </span>
+          </div>
+        )}
+        <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+            {subtitle && (
+              <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
+            )}
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            {actions}
+            <HeaderLogout />
+          </div>
+        </header>
+        {children}
+      </div>
+    </Shell>
+  );
+
+  // TEST BYPASS: render the shell directly, bypassing the Convex Auth
+  // <AuthLoading>/<Unauthenticated>/<Authenticated> wrappers. Without this,
+  // the unauthenticated state fires <RedirectToLogin> and bounces to /login
+  // even though RouteGuard already let the page through.
+  if (TEST_BYPASS_ENABLED) return content;
+
   return (
     <>
       <AuthLoading>
@@ -209,23 +263,24 @@ export function Layout({
       <Unauthenticated>
         <RedirectToLogin router={router} />
       </Unauthenticated>
-      <Authenticated>
-        <Shell>
-          <div className="mx-auto max-w-7xl px-6 py-6">
-            <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
-              <div>
-                <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-                {subtitle && (
-                  <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
-                )}
-              </div>
-              {actions}
-            </header>
-            {children}
-          </div>
-        </Shell>
-      </Authenticated>
+      <Authenticated>{content}</Authenticated>
     </>
+  );
+}
+
+/** Top-right logout affordance for the admin content header. */
+function HeaderLogout() {
+  const { signOut } = useAuthActions();
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      onClick={() => signOut()}
+      aria-label="Keluar"
+      title="Keluar"
+    >
+      <LogOut className="h-5 w-5" />
+    </Button>
   );
 }
 
