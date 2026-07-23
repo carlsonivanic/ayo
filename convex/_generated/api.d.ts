@@ -33,6 +33,7 @@ import type * as regions from "../regions.js";
 import type * as registration from "../registration.js";
 import type * as reports from "../reports.js";
 import type * as seed from "../seed.js";
+import type * as testBypass from "../testBypass.js";
 import type * as testHelpers from "../testHelpers.js";
 
 import type {
@@ -67,6 +68,7 @@ declare const fullApi: ApiFromModules<{
   registration: typeof registration;
   reports: typeof reports;
   seed: typeof seed;
+  testBypass: typeof testBypass;
   testHelpers: typeof testHelpers;
 }>;
 

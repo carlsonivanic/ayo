@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { BuildIdStamp } from "@/components/BuildIdStamp";
 import { Loader2 } from "lucide-react";
+import { TEST_BYPASS_ENABLED } from "@/lib/testBypass";
 
 function LoginForm() {
   const { signIn } = useAuthActions();
@@ -91,6 +92,13 @@ function LoginForm() {
 
 export default function LoginPage() {
   const router = useRouter();
+
+  // TEST BYPASS: no sign-in needed — bounce straight to the admin console.
+  if (TEST_BYPASS_ENABLED) {
+    if (typeof window !== "undefined") router.replace("/");
+    return null;
+  }
+
   return (
     <>
       <Authenticated>

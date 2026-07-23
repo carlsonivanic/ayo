@@ -16,6 +16,7 @@ import {
 import { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
+import { testBypassAdmin } from "./testBypass";
 
 export type AdminRole = "super_admin" | "finance_admin" | "ops_admin";
 
@@ -28,10 +29,15 @@ const roleValidator = v.union(
 /**
  * Resolve the admin profile for the currently authenticated user.
  * Returns null when not signed in or not yet granted an admin role.
+ *
+ * TEST BYPASS: when `TEST_BYPASS=true` is set on the deployment, returns a
+ * stable super_admin profile without checking auth — see convex/testBypass.ts.
  */
 export async function getCurrentAdmin(
   ctx: QueryCtx | MutationCtx,
 ): Promise<Doc<"adminProfiles"> | null> {
+  const bypass = await testBypassAdmin(ctx);
+  if (bypass) return bypass;
   const userId = await getAuthUserId(ctx);
   if (!userId) return null;
   return await ctx.db
