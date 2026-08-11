@@ -1,72 +1,68 @@
 import type { Config } from "tailwindcss";
 
+// AYO is used one-handed, outdoors, on cheap Android phones. The palette is
+// borrowed from warung signage — bottle green ink, a single warung-yellow accent
+// reserved for the thing you can act on — and every number is set in mono so
+// amounts align to one right edge across the whole app.
+
 const config: Config = {
-  darkMode: ["class"],
   content: ["./src/**/*.{ts,tsx}"],
   theme: {
-    container: {
-      center: true,
-      padding: "2rem",
-      screens: { "2xl": "1400px" },
-    },
     extend: {
       colors: {
-        border: "hsl(var(--border))",
-        input: "hsl(var(--input))",
-        ring: "hsl(var(--ring))",
-        background: "hsl(var(--background))",
-        foreground: "hsl(var(--foreground))",
-        primary: {
-          DEFAULT: "hsl(var(--primary))",
-          foreground: "hsl(var(--primary-foreground))",
+        ink: {
+          DEFAULT: "#10312B",
+          soft: "#3D5852",
+          mute: "#6B807B",
+          faint: "#9AAAA5",
         },
-        secondary: {
-          DEFAULT: "hsl(var(--secondary))",
-          foreground: "hsl(var(--secondary-foreground))",
-        },
-        destructive: {
-          DEFAULT: "hsl(var(--destructive))",
-          foreground: "hsl(var(--destructive-foreground))",
-        },
-        muted: {
-          DEFAULT: "hsl(var(--muted))",
-          foreground: "hsl(var(--muted-foreground))",
+        paper: "#F4F6F3",
+        surface: "#FFFFFF",
+        line: {
+          DEFAULT: "#DDE3DE",
+          strong: "#C3CDC7",
         },
         accent: {
-          DEFAULT: "hsl(var(--accent))",
-          foreground: "hsl(var(--accent-foreground))",
+          DEFAULT: "#F2B705",
+          ink: "#3B2C00",
+          soft: "#FDF3D4",
         },
-        popover: {
-          DEFAULT: "hsl(var(--popover))",
-          foreground: "hsl(var(--popover-foreground))",
-        },
-        card: {
-          DEFAULT: "hsl(var(--card))",
-          foreground: "hsl(var(--card-foreground))",
-        },
+        good: { DEFAULT: "#17795E", soft: "#E3F2EC" },
+        warn: { DEFAULT: "#B4460F", soft: "#FBEBE2" },
+      },
+      fontFamily: {
+        sans: ["var(--font-sans)", "system-ui", "sans-serif"],
+        mono: ["var(--font-mono)", "ui-monospace", "monospace"],
+      },
+      fontSize: {
+        "2xs": ["0.6875rem", { lineHeight: "1rem", letterSpacing: "0.06em" }],
       },
       borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        DEFAULT: "10px",
+        lg: "14px",
+        xl: "20px",
+      },
+      boxShadow: {
+        card: "0 1px 0 rgba(16,49,43,0.04), 0 1px 2px rgba(16,49,43,0.06)",
+        lift: "0 8px 30px -12px rgba(16,49,43,0.28)",
       },
       keyframes: {
-        "accordion-down": {
-          from: { height: "0" },
-          to: { height: "var(--radix-accordion-content-height)" },
+        tick: {
+          "0%": { transform: "scaleY(0.2)", opacity: "0" },
+          "100%": { transform: "scaleY(1)", opacity: "1" },
         },
-        "accordion-up": {
-          from: { height: "var(--radix-accordion-content-height)" },
-          to: { height: "0" },
+        rise: {
+          "0%": { transform: "translateY(6px)", opacity: "0" },
+          "100%": { transform: "translateY(0)", opacity: "1" },
         },
       },
       animation: {
-        "accordion-down": "accordion-down 0.2s ease-out",
-        "accordion-up": "accordion-up 0.2s ease-out",
+        tick: "tick 220ms cubic-bezier(.2,.7,.3,1) both",
+        rise: "rise 200ms cubic-bezier(.2,.7,.3,1) both",
       },
     },
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [],
 };
 
 export default config;

@@ -1,523 +1,196 @@
-import { action, internalMutation, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { createAccount } from "@convex-dev/auth/server";
-import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
-import { resolveUpline, computeCommissionEntries } from "./lib/commission";
+import { MutationCtx, internalMutation } from "./_generated/server";
+import { insertEarning, recordAcquisition, recordMerchantPayment } from "./lib/ledger";
+import { pctOf } from "./lib/money";
+import { addMonths, periodOf, periodStart, shiftPeriod } from "./lib/period";
+import { ensureSettings } from "./lib/settings";
+import { ensurePlans } from "./plans";
+import { closeL1Month } from "./monthEnd";
 
-// Full systemParameters defaults (PRD §3). Includes Phase 2/3 keys so the
-// parameter set is consistent from day one — Phase 1 only WIRES a subset.
-const PARAMS: Record<string, string> = {
-  // Pricing (IDR)
-  price_daily: "4000",
-  price_weekly: "28000",
-  price_monthly: "69000",
-  price_annual: "499000",
-  price_lifetime_solo: "1499000",
-  price_lifetime_duo: "1999000",
-  // L1 — enrollment & status
-  l1_probation_months: "3",
-  l1_commitment_fee: "100000",
-  l1_fee_waiver_extra_activations: "3",
-  l1_escrow_forfeiture_days: "30",
-  l1_active_min_activations: "3",
-  l1_dormant_min_activations: "1",
-  l1_dormant_warning_week: "10",
-  l1_dormant_residual_pct: "50",
-  l1_inactive_residual_pct: "25",
-  l1_lifetime_conversion_cap_pct: "20",
-  l1_ownership_transfer_quarters: "1",
-  finder_fee_amount: "20000",
-  // L1 — commission
-  l1_monthly_commission_y1_pct: "40",
-  l1_monthly_commission_y2_pct: "30",
-  l1_monthly_commission_y3_pct: "20",
-  l1_annual_commission_y1_pct: "30",
-  l1_annual_commission_y2_pct: "20",
-  l1_lifetime_solo_commission: "500000",
-  l1_lifetime_duo_commission: "700000",
-  // L2 — gate
-  l2_promo_min_months_l1: "6",
-  l2_promo_min_activations: "50",
-  l2_promo_min_recruits: "3",
-  // L2 — KPI & roster
-  l2_kpi_period: "quarterly",
-  l2_kpi_health_pct: "60",
-  l2_kpi_dev_min: "1",
-  l2_roster_soft_cap: "15",
-  l2_roster_warning_threshold: "13",
-  l2_suspended_denominator_quarters: "1",
-  // L2 — status multipliers
-  l2_multiplier_active: "100",
-  l2_multiplier_coasting: "75",
-  l2_multiplier_developing: "60",
-  l2_multiplier_dormant: "30",
-  l2_multiplier_suspended: "0",
-  // L2 — income
-  l2_override_rate: "15",
-  l2_bonus_area_threshold: "200",
-  l2_bonus_area_amount: "500000",
-  l2_bonus_growth_pct: "10",
-  l2_bonus_growth_amount: "300000",
-  l2_promo_bonus_per_l1_promoted: "1500000",
-  // L3 — gate
-  l3_promo_min_months_l2: "12",
-  l3_promo_min_l2s_built: "3",
-  l3_promo_min_active_merchants: "1000",
-  // L3 — KPI & roster
-  l3_kpi_period: "semi-annual",
-  l3_kpi_health_pct: "60",
-  l3_kpi_dev_min: "1",
-  l3_roster_soft_cap: "8",
-  l3_roster_warning_threshold: "7",
-  // L3 — status multipliers
-  l3_multiplier_active: "100",
-  l3_multiplier_coasting: "75",
-  l3_multiplier_developing: "60",
-  l3_multiplier_dormant: "30",
-  l3_multiplier_suspended: "0",
-  // L3 — income
-  l3_override_rate: "10",
-  l3_bonus_region_threshold: "2000",
-  l3_bonus_region_amount: "2000000",
-  l3_bonus_annual_threshold: "5000",
-  l3_bonus_annual_amount: "10000000",
-  l3_bonus_growth_pct: "10",
-  l3_bonus_growth_amount: "1000000",
-  l3_promo_bonus_per_l2_promoted: "3000000",
-  // Tenure clock
-  l1_l2_tenure_years: "3",
-  l1_l2_graduation_warning_months: "12",
-  l2_l3_graduation_warning_months: "12",
-  tenure_clock_applies_to_existing: "false",
-  // Shared payout
-  payout_minimum_threshold: "50000",
-  pph21_threshold: "4500000",
-  payout_dispute_window_days: "7",
-  // Platform / code lifecycle
-  code_unused_expiry_days: "90",
-  lifetime_duo_window_hours: "48",
-  grace_period_days: "3",
-  // Subscription durations (days)
-  duration_weekly_days: "7",
-  duration_monthly_days: "30",
-  duration_annual_days: "365",
-};
+// Bootstrap and demo data.
+//   npx convex run seed:bootstrap '{"email":"you@example.com","name":"Your Name"}'
+//   npx convex run seed:demo
 
-// Canonical region defaults, shared by the destructive demo seed and the
-// non-destructive prod seed. Deduped by `code`.
-const REGION_DEFS: { name: string; code: string }[] = [
-  { name: "DKI Jakarta", code: "JKT" },
-  { name: "Surabaya", code: "SBY" },
-  { name: "Bandung", code: "BDG" },
-];
-
-const DAY = 86400000;
-
-/** Snapshot price (IDR BigInt) for a tier, mirroring params.tierPriceKey. */
-function seedTierPrice(
-  tier: "daily" | "weekly" | "monthly" | "annual" | "lifetime",
-  lifetimeKind?: "solo" | "duo",
-): bigint {
-  const key =
-    tier === "lifetime"
-      ? lifetimeKind === "duo"
-        ? "price_lifetime_duo"
-        : "price_lifetime_solo"
-      : `price_${tier}`;
-  return BigInt(PARAMS[key] ?? "0");
+async function upsertUser(
+  ctx: MutationCtx,
+  args: {
+    name: string;
+    email: string;
+    role: "L1" | "L2" | "ADMIN";
+    assignedL2Id?: Id<"users">;
+    recruitedByL2Id?: Id<"users">;
+    firstPaymentAt?: number;
+  },
+): Promise<Id<"users">> {
+  const email = args.email.toLowerCase();
+  const existing = await ctx.db
+    .query("users")
+    .withIndex("email", (q) => q.eq("email", email))
+    .unique();
+  const now = Date.now();
+  if (existing) {
+    await ctx.db.patch("users", existing._id, {
+      name: args.name,
+      role: args.role,
+      status: "ACTIVE",
+      assignedL2Id: args.assignedL2Id,
+      recruitedByL2Id: args.recruitedByL2Id,
+      firstPaymentAt: args.firstPaymentAt ?? existing.firstPaymentAt,
+    });
+    return existing._id;
+  }
+  return await ctx.db.insert("users", {
+    name: args.name,
+    email,
+    role: args.role,
+    status: "ACTIVE",
+    registeredAt: now,
+    approvedAt: now,
+    recruitmentSource: args.role === "ADMIN" ? "ADMIN_CREATE" : "L2_INVITE",
+    assignedL2Id: args.assignedL2Id,
+    recruitedByL2Id: args.recruitedByL2Id,
+    firstPaymentAt: args.firstPaymentAt,
+  });
 }
 
-/**
- * Dev-only: grant an admin role to an already-signed-up Convex Auth user.
- * Run AFTER creating the account on the login screen, e.g.
- *   npx convex run seed:grantAdmin '{"email":"you@ayo.id","role":"super_admin","name":"You"}'
- */
-export const grantAdmin = mutation({
-  args: {
-    email: v.string(),
-    role: v.union(
-      v.literal("super_admin"),
-      v.literal("finance_admin"),
-      v.literal("ops_admin"),
-    ),
-    name: v.string(),
-  },
-  handler: async (ctx, { email, role, name }) => {
-    const user = await ctx.db
-      .query("users")
-      .filter((q) => q.eq(q.field("email"), email))
-      .first();
-    if (!user)
-      throw new Error(
-        `Tidak ada user dengan email ${email}. Buat akun dulu di halaman login.`,
-      );
-    const existing = await ctx.db
-      .query("adminProfiles")
-      .withIndex("by_user", (q) => q.eq("authUserId", user._id))
-      .unique();
-    if (existing) {
-      await ctx.db.patch(existing._id, { role, name });
-      return { updated: existing._id };
-    }
-    const id = await ctx.db.insert("adminProfiles", {
-      authUserId: user._id,
-      role,
-      name,
+async function ensurePayoutProfile(ctx: MutationCtx, userId: Id<"users">, name: string) {
+  const existing = await ctx.db
+    .query("payoutProfiles")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .unique();
+  if (existing) return;
+  await ctx.db.insert("payoutProfiles", {
+    userId,
+    bankName: "BCA",
+    accountNumber: String(1000000000 + Math.floor(Math.random() * 899999999)),
+    accountName: name,
+    completed: true,
+  });
+}
+
+export const bootstrap = internalMutation({
+  args: { email: v.string(), name: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    await ensureSettings(ctx);
+    await ensurePlans(ctx);
+    const adminId = await upsertUser(ctx, {
+      name: args.name ?? "Admin",
+      email: args.email,
+      role: "ADMIN",
     });
-    return { created: id };
+    return { adminId };
   },
 });
 
-/**
- * Non-destructive parameter seed. Inserts every PARAMS key (prices + business
- * values) that is missing as a global row effective from epoch, and leaves any
- * existing rows — including manual price overrides — untouched. Safe to run on a
- * live deployment whose systemParameters table is empty or partially populated.
- */
-export const seedParameters = internalMutation({
+export const demo = internalMutation({
   args: {},
   handler: async (ctx) => {
-    const existing = await ctx.db.query("systemParameters").collect();
-    const known = new Set(existing.filter((r) => !r.regionId).map((r) => r.key));
-    const inserted: string[] = [];
-    for (const [key, value] of Object.entries(PARAMS)) {
-      if (known.has(key)) continue;
-      await ctx.db.insert("systemParameters", { key, value, effectiveAt: 0 });
-      inserted.push(key);
-    }
-    return { inserted, skipped: known.size, total: Object.keys(PARAMS).length };
-  },
-});
-
-/**
- * Non-destructive region seed. Inserts every REGION_DEFS entry whose `code` is
- * not already present, and leaves existing regions untouched. Safe on a live
- * deployment — codes/licenses require at least one region to exist.
- */
-export const seedRegions = internalMutation({
-  args: {},
-  handler: async (ctx) => {
-    const inserted: string[] = [];
-    const skipped: string[] = [];
-    for (const def of REGION_DEFS) {
-      const existing = await ctx.db
-        .query("regions")
-        .withIndex("by_code", (q) => q.eq("code", def.code))
-        .first();
-      if (existing) {
-        skipped.push(def.code);
-        continue;
-      }
-      await ctx.db.insert("regions", def);
-      inserted.push(def.code);
-    }
-    return { inserted, skipped };
-  },
-});
-
-/**
- * Non-destructive prod bootstrap: parameters + regions only. Safe to run on a
- * live deployment (e.g. `npx convex run seed:seedProd --prod`); never clears
- * tables and never inserts demo agents/codes/licenses. Admins are granted
- * separately via `seed:grantAdmin` after signing up on the login screen.
- */
-export const seedProd = internalMutation({
-  args: {},
-  handler: async (ctx) => {
-    const existingParams = await ctx.db.query("systemParameters").collect();
-    const knownParams = new Set(
-      existingParams.filter((r) => !r.regionId).map((r) => r.key),
-    );
-    const insertedParams: string[] = [];
-    for (const [key, value] of Object.entries(PARAMS)) {
-      if (knownParams.has(key)) continue;
-      await ctx.db.insert("systemParameters", { key, value, effectiveAt: 0 });
-      insertedParams.push(key);
-    }
-
-    const insertedRegions: string[] = [];
-    for (const def of REGION_DEFS) {
-      const existing = await ctx.db
-        .query("regions")
-        .withIndex("by_code", (q) => q.eq("code", def.code))
-        .first();
-      if (existing) continue;
-      await ctx.db.insert("regions", def);
-      insertedRegions.push(def.code);
-    }
-
-    return {
-      parameters: { inserted: insertedParams, skipped: knownParams.size },
-      regions: { inserted: insertedRegions },
-    };
-  },
-});
-
-/** Seed parameters + regions + demo agents/codes/licenses/ledger. Idempotent. */
-export const run = internalMutation({
-  args: {},
-  handler: async (ctx) => {
-    // Clear demo/business tables (never touches users/adminProfiles).
-    for (const table of [
-      "systemParameters",
-      "regions",
-      "agents",
-      "licenses",
-      "subscriptionCodes",
-      "commissionLedger",
-      "agentTeamMemberships",
-      "notifications",
-      "agentKpiSnapshots",
-    ] as const) {
-      const rows = await ctx.db.query(table).collect();
-      for (const r of rows) await ctx.db.delete(r._id);
-    }
-
-    // Parameters (global, effective from epoch).
-    for (const [key, value] of Object.entries(PARAMS)) {
-      await ctx.db.insert("systemParameters", { key, value, effectiveAt: 0 });
-    }
-
-    // Regions
-    const regions: Id<"regions">[] = [];
-    for (const r of REGION_DEFS) regions.push(await ctx.db.insert("regions", r));
-    const [JKT, SBY, BDG] = regions;
+    await ensureSettings(ctx);
+    await ensurePlans(ctx);
 
     const now = Date.now();
+    const monthly = (await ctx.db
+      .query("productPlans")
+      .withIndex("by_key", (q) => q.eq("key", "MONTHLY"))
+      .unique())!;
+    const yearly = (await ctx.db
+      .query("productPlans")
+      .withIndex("by_key", (q) => q.eq("key", "YEARLY"))
+      .unique())!;
 
-    // Agents — mix of levels and statuses across regions. `referrerIdx` wires
-    // the demo upline chain so L2/L3 overrides actually populate in the engine-
-    // driven ledger below: Agus (L3) ← Budi+Siti (L2) ← regional L1s.
-    const agentDefs: {
-      name: string;
-      phone: string;
-      level: number;
-      status: "probation" | "active" | "dormant" | "inactive" | "suspended";
-      region: Id<"regions">;
-      enrolledDaysAgo: number;
-      feePaid?: boolean;
-      escrow?: number;
-      lastActiveDaysAgo?: number;
-      referrerIdx?: number; // index into agentDefs (must be defined earlier)
-    }[] = [
-      { name: "Budi Santoso", phone: "081200000001", level: 2, status: "active", region: JKT, enrolledDaysAgo: 540, feePaid: true, lastActiveDaysAgo: 1, referrerIdx: 2 }, // → Agus (L3)
-      { name: "Siti Rahayu", phone: "081200000002", level: 2, status: "active", region: SBY, enrolledDaysAgo: 480, feePaid: true, lastActiveDaysAgo: 2, referrerIdx: 2 }, // → Agus (L3)
-      { name: "Agus Wijaya", phone: "081200000003", level: 3, status: "active", region: JKT, enrolledDaysAgo: 720, feePaid: true, lastActiveDaysAgo: 3 },
-      { name: "Dewi Lestari", phone: "081200000004", level: 1, status: "active", region: JKT, enrolledDaysAgo: 220, feePaid: true, lastActiveDaysAgo: 1, referrerIdx: 0 }, // → Budi (L2)
-      { name: "Eko Prasetyo", phone: "081200000005", level: 1, status: "active", region: SBY, enrolledDaysAgo: 200, feePaid: true, lastActiveDaysAgo: 4, referrerIdx: 1 }, // → Siti (L2)
-      { name: "Fitri Handayani", phone: "081200000006", level: 1, status: "dormant", region: BDG, enrolledDaysAgo: 300, feePaid: true, lastActiveDaysAgo: 40 },
-      { name: "Gunawan Saputra", phone: "081200000007", level: 1, status: "active", region: BDG, enrolledDaysAgo: 150, feePaid: true, lastActiveDaysAgo: 2 },
-      { name: "Hesti Kurnia", phone: "081200000008", level: 1, status: "probation", region: JKT, enrolledDaysAgo: 20, escrow: 180000, referrerIdx: 0 }, // → Budi
-      { name: "Indra Permana", phone: "081200000009", level: 1, status: "probation", region: SBY, enrolledDaysAgo: 12, escrow: 90000, referrerIdx: 1 }, // → Siti
-      { name: "Joko Susilo", phone: "081200000010", level: 1, status: "inactive", region: BDG, enrolledDaysAgo: 410, feePaid: true, lastActiveDaysAgo: 120 },
-      { name: "Kartika Sari", phone: "081200000011", level: 1, status: "active", region: JKT, enrolledDaysAgo: 95, feePaid: true, lastActiveDaysAgo: 1, referrerIdx: 0 }, // → Budi
-      { name: "Lukman Hakim", phone: "081200000012", level: 1, status: "suspended", region: SBY, enrolledDaysAgo: 260, feePaid: true, lastActiveDaysAgo: 70, referrerIdx: 1 }, // → Siti
-      { name: "Maya Anggraini", phone: "081200000013", level: 1, status: "active", region: BDG, enrolledDaysAgo: 70, feePaid: true, lastActiveDaysAgo: 3 },
-      { name: "Nanda Pratama", phone: "081200000014", level: 1, status: "dormant", region: JKT, enrolledDaysAgo: 180, feePaid: true, lastActiveDaysAgo: 35, referrerIdx: 0 }, // → Budi
-      { name: "Oka Mahendra", phone: "081200000015", level: 1, status: "probation", region: BDG, enrolledDaysAgo: 5, escrow: 30000 },
-    ];
-
-    const agentIds: Id<"agents">[] = [];
-    for (const a of agentDefs) {
-      const id = await ctx.db.insert("agents", {
-        name: a.name,
-        phone: a.phone,
-        level: a.level,
-        status: a.status,
-        regionId: a.region,
-        enrolledAt: now - a.enrolledDaysAgo * DAY,
-        feePaidAt: a.feePaid ? now - (a.enrolledDaysAgo - 90) * DAY : undefined,
-        escrowAmount: BigInt(a.escrow ?? 0),
-        lastActiveAt:
-          a.lastActiveDaysAgo !== undefined
-            ? now - a.lastActiveDaysAgo * DAY
-            : undefined,
-        suspendedAt: a.status === "suspended" ? now - 70 * DAY : undefined,
-        referrerId: a.referrerIdx !== undefined ? agentIds[a.referrerIdx] : undefined,
-      });
-      agentIds.push(id);
-    }
-
-    // Licenses (merchants) — distributed across L1 agents. Each license gets a
-    // linked `agent`-channel subscriptionCode so reports can classify revenue by
-    // channel and the commission engine has the same inputs as production.
-    const tierPool: ("monthly" | "annual" | "lifetime")[] = [
-      "monthly",
-      "monthly",
-      "monthly",
-      "annual",
-      "lifetime",
-    ];
-    let licCounter = 0;
-    let licenseCodeSeq = 5000;
-    const l1Agents = agentDefs
-      .map((a, i) => ({ ...a, id: agentIds[i] }))
-      .filter((a) => a.level === 1 && a.status !== "probation");
-    const seededLicenseIds: Id<"licenses">[] = [];
-    for (const a of l1Agents) {
-      const count =
-        a.status === "active" ? 6 : a.status === "dormant" ? 3 : 1;
-      for (let i = 0; i < count; i++) {
-        const tier = tierPool[(licCounter + i) % tierPool.length];
-        const lifetimeKind: "solo" | undefined = tier === "lifetime" ? "solo" : undefined;
-        const activatedAt = now - ((i * 13) % 85) * DAY;
-        const priceIDR = seedTierPrice(tier, lifetimeKind);
-
-        // Matching agent-channel code, already activated, so revenue-by-channel
-        // sees these activations as `agent`-channel revenue.
-        const block = (licenseCodeSeq++).toString().padStart(5, "0");
-        const codeId = await ctx.db.insert("subscriptionCodes", {
-          code: `SM-SEED-${block.slice(0, 4)}-${block}`,
-          tier,
-          lifetimeKind,
-          channel: "agent",
-          status: "active",
-          agentId: a.id,
-          regionId: a.region,
-          activatedAt,
-          priceIDR,
-        });
-
-        const licenseId = await ctx.db.insert("licenses", {
-          deviceId: `dev-${a.phone}-${i}`,
-          agentId: a.id,
-          tier,
-          activatedAt,
-          expiresAt:
-            tier === "lifetime"
-              ? undefined
-              : activatedAt + (tier === "annual" ? 365 : 30) * DAY,
-          creditDays: 0,
-          gracePeriodDays: 3,
-          status: "active",
-          regionId: a.region,
-          codeId,
-          priceIDR,
-        });
-        seededLicenseIds.push(licenseId);
-
-        // Engine-driven commission: identical path to a live activation.
-        const upline = await resolveUpline(ctx, a.id);
-        const entries = await computeCommissionEntries(ctx, upline, {
-          licenseId,
-          tier,
-          priceIDR,
-          regionId: a.region,
-          activatedAt,
-          lifetimeKind,
-        });
-        for (const e of entries) await ctx.db.insert("commissionLedger", e);
-      }
-      licCounter += count;
-    }
-
-    // Settle the oldest ~half of each active agent's entries under a demo
-    // payoutId so the Payout Runs history pane has something to show. Everything
-    // else stays `pending` and shows up in the next-run preview.
-    const demoPayoutId = `monthly-demo-${new Date(now).toISOString().slice(0, 7)}`;
-    for (const a of l1Agents.filter((a) => a.status === "active")) {
-      const pending = await ctx.db
-        .query("commissionLedger")
-        .withIndex("by_agent_status", (q) =>
-          q.eq("agentId", a.id).eq("status", "pending"),
-        )
-        .collect();
-      // Settle all but the 3 newest.
-      const toSettle = pending
-        .sort((x, y) => x._creationTime - y._creationTime)
-        .slice(0, Math.max(0, pending.length - 3));
-      for (const e of toSettle) {
-        await ctx.db.patch(e._id, { status: "settled", payoutId: demoPayoutId });
-      }
-    }
-
-    // Subscription codes — mixed statuses + a retail batch.
-    const codeRows = [
-      { tier: "monthly" as const, channel: "agent" as const, status: "unused" as const, agent: agentIds[3], region: JKT },
-      { tier: "annual" as const, channel: "agent" as const, status: "active" as const, agent: agentIds[4], region: SBY },
-      { tier: "lifetime" as const, lifetimeKind: "solo" as const, channel: "agent" as const, status: "unused" as const, agent: agentIds[0], region: JKT },
-      { tier: "monthly" as const, channel: "self_serve" as const, status: "expired" as const, region: BDG },
-      { tier: "weekly" as const, channel: "self_serve" as const, status: "unused" as const, region: JKT },
-      { tier: "monthly" as const, channel: "retail" as const, status: "unused" as const, region: SBY, batch: "RETAIL-2026-06" },
-      { tier: "monthly" as const, channel: "retail" as const, status: "unused" as const, region: SBY, batch: "RETAIL-2026-06" },
-      { tier: "annual" as const, channel: "retail" as const, status: "revoked" as const, region: SBY, batch: "RETAIL-2026-06", reason: "Cetak ganda" },
-    ];
-    let codeSeq = 1000;
-    for (const c of codeRows) {
-      const block = (codeSeq++).toString().padStart(5, "0");
-      await ctx.db.insert("subscriptionCodes", {
-        code: `SM-DEMO-${block.slice(0, 4)}-${block}`,
-        tier: c.tier,
-        lifetimeKind: "lifetimeKind" in c ? c.lifetimeKind : undefined,
-        channel: c.channel,
-        status: c.status,
-        agentId: "agent" in c ? c.agent : undefined,
-        batchId: "batch" in c ? c.batch : undefined,
-        regionId: c.region,
-        expiresUnusedAt: now + 90 * DAY,
-        revokedReason: "reason" in c ? c.reason : undefined,
-        activatedAt: c.status === "active" ? now - 10 * DAY : undefined,
-        priceIDR: seedTierPrice(
-          c.tier,
-          "lifetimeKind" in c ? c.lifetimeKind : undefined,
-        ),
-      });
-    }
-
-    return {
-      parameters: Object.keys(PARAMS).length,
-      regions: regions.length,
-      agents: agentIds.length,
-    };
-  },
-});
-
-/**
- * First-admin bootstrap for a fresh local backend. Creates a Convex Auth
- * user (email + password) and links it to a super_admin profile in one shot.
- * Run this once after `seed:run`, then log in at /login.
- *
- * Usage:
- *   npx convex run seed:bootstrap --args '{"email":"admin@test.com","name":"Admin","password":"admin1234"}'
- */
-export const bootstrap = action({
-  args: {
-    email: v.string(),
-    name: v.string(),
-    password: v.string(),
-  },
-  handler: async (ctx, { email, name, password }) => {
-    const normalized = email.trim().toLowerCase();
-    if (!normalized.includes("@")) throw new Error("Email tidak valid.");
-    if (password.length < 8) throw new Error("Kata sandi minimal 8 karakter.");
-
-    let user;
-    try {
-      ({ user } = await createAccount(ctx, {
-        provider: "password",
-        account: { id: normalized, secret: password },
-        profile: { email: normalized },
-      }));
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "";
-      if (msg.includes("already exists"))
-        throw new Error(`Email ${normalized} sudah terdaftar.`);
-      throw err;
-    }
-
-    // Reuse the existing admins.attachProfile internal mutation instead of
-    // duplicating the adminProfiles insert logic here.
-    await ctx.runMutation(internal.admins.attachProfile, {
-      authUserId: user._id,
-      name: name.trim(),
-      role: "super_admin",
+    const l2Id = await upsertUser(ctx, {
+      name: "Rina Kartika",
+      email: "rina@ayo.test",
+      role: "L2",
     });
+    await ensurePayoutProfile(ctx, l2Id, "Rina Kartika");
 
-    return {
-      email: normalized,
-      name: name.trim(),
-      role: "super_admin",
-    };
+    // Three L1s with different tenures, so warmth, guarantee and L2 decay are all
+    // visible at once.
+    const agents = [
+      { name: "Budi Santoso", email: "budi@ayo.test", months: 9, perMonth: [7, 6, 5, 4] },
+      { name: "Sari Dewi", email: "sari@ayo.test", months: 2, perMonth: [9, 8] },
+      { name: "Andi Pratama", email: "andi@ayo.test", months: 14, perMonth: [3, 2, 4, 6] },
+    ];
+
+    for (const agent of agents) {
+      const firstPaymentAt = addMonths(now, -(agent.months - 1));
+      const l1Id = await upsertUser(ctx, {
+        name: agent.name,
+        email: agent.email,
+        role: "L1",
+        assignedL2Id: l2Id,
+        recruitedByL2Id: l2Id,
+        firstPaymentAt,
+      });
+      await ensurePayoutProfile(ctx, l1Id, agent.name);
+
+      const already = await ctx.db
+        .query("acquisitions")
+        .withIndex("by_l1_period", (q) => q.eq("l1Id", l1Id))
+        .first();
+      if (already) continue; // demo data already present
+
+      const periods = agent.perMonth.map((_, i) =>
+        shiftPeriod(periodOf(now), -(agent.perMonth.length - 1 - i)),
+      );
+
+      for (let p = 0; p < periods.length; p++) {
+        const period = periods[p];
+        const base = Math.max(periodStart(period), firstPaymentAt);
+        for (let i = 0; i < agent.perMonth[p]; i++) {
+          const plan = i % 4 === 0 ? yearly : monthly;
+          const date = base + i * 36 * 60 * 60 * 1000;
+          if (date > now) continue;
+          const merchantId = await ctx.db.insert("merchants", {
+            sellMoreStoreId: `DEMO-${agent.email.split("@")[0]}-${period}-${i}`,
+            storeName: `Warung ${agent.name.split(" ")[0]} ${period.slice(5)}${i + 1}`,
+            ownerL1Id: l1Id,
+            firstPaymentAt: date,
+            firstActivatedAt: date,
+            currentPlanId: plan._id,
+            subscriptionStatus: "SUBSCRIBED",
+            currentExpiryAt: addMonths(date, plan.durationMonths),
+          });
+          const amount = pctOf(plan.price, plan.y1Percent);
+          await insertEarning(ctx, {
+            l1Id,
+            date,
+            type: "NEW_SALES",
+            amount,
+            status: "CONFIRMED",
+            planId: plan._id,
+            merchantId,
+          });
+          await recordAcquisition(ctx, {
+            l1Id,
+            merchantId,
+            date,
+            sourceType: "CODE",
+            sourceId: `demo-${merchantId}`,
+          });
+          await recordMerchantPayment(ctx, {
+            merchantId,
+            recipientL1Id: l1Id,
+            date,
+            type: "NEW_SALES",
+            amount,
+            paymentAmount: plan.price,
+            planId: plan._id,
+            method: "CODE",
+            yLabel: "Y1",
+          });
+        }
+      }
+
+      // Close every month except the current one, so summaries, held and L2 fees
+      // exist to look at.
+      for (const period of periods.slice(0, -1)) {
+        await closeL1Month(ctx, l1Id, period);
+      }
+    }
+
+    return { seeded: true };
   },
 });

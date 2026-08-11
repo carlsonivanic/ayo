@@ -1,210 +1,190 @@
-import {
-  action,
-  internalMutation,
-  internalQuery,
-  MutationCtx,
-} from "./_generated/server";
-import { createAccount } from "@convex-dev/auth/server";
 import { v } from "convex/values";
-import { internal } from "./_generated/api";
-import { Id } from "./_generated/dataModel";
+import { MutationCtx, mutation, query } from "./_generated/server";
+import { fail, rateLimit, requireL2 } from "./lib/authz";
+import { assertMobileFree, normalizeMobile } from "./lib/mobile";
+import { notify, notifyAdmins } from "./lib/notify";
+import { randomToken } from "./lib/tokens";
 
-const WINDOW_MS = 60 * 60 * 1000; // 1 hour
-const MAX_PER_WINDOW = 30;
-const RATE_LIMIT_KEY = "agent_registration";
+// §3.2 — three registration paths, all active. Admin-create lives in admin/users.ts.
 
-async function checkRateLimit(ctx: MutationCtx) {
-  const now = Date.now();
-  const existing = await ctx.db
-    .query("rateLimitCounters")
-    .withIndex("by_key", (q) => q.eq("key", RATE_LIMIT_KEY))
-    .unique();
-
-  if (!existing) {
-    await ctx.db.insert("rateLimitCounters", {
-      key: RATE_LIMIT_KEY,
-      count: 1,
-      windowStart: now,
-    });
-    return;
-  }
-
-  if (now - existing.windowStart > WINDOW_MS) {
-    await ctx.db.patch(existing._id, { count: 1, windowStart: now });
-    return;
-  }
-
-  if (existing.count >= MAX_PER_WINDOW) {
-    throw new Error(
-      "Terlalu banyak pendaftaran dalam waktu singkat. Coba lagi nanti.",
-    );
-  }
-
-  await ctx.db.patch(existing._id, { count: existing.count + 1 });
+function cleanEmail(raw: string): string {
+  const email = raw.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail("INVALID_EMAIL", "Email tidak valid.");
+  return email;
 }
 
-/** Internal: is this phone already registered? (pre-check before account creation) */
-export const phoneTaken = internalQuery({
-  args: { phone: v.string() },
-  handler: async (ctx, { phone }) => {
-    const existing = await ctx.db
-      .query("agents")
-      .withIndex("by_phone", (q) => q.eq("phone", phone))
-      .unique();
-    return existing !== null;
-  },
-});
+async function assertEmailFree(ctx: MutationCtx, email: string): Promise<void> {
+  const existing = await ctx.db
+    .query("users")
+    .withIndex("email", (q) => q.eq("email", email))
+    .unique();
+  if (existing) fail("EMAIL_TAKEN", "Email sudah terdaftar.");
+}
 
-/**
- * Internal: rate-limit, validate, resolve referrer, and insert the agent row
- * linked to the freshly created auth user. Runs as a single transaction so the
- * phone-uniqueness re-check and insert can't race.
- */
-export const attachAgent = internalMutation({
-  args: {
-    authUserId: v.id("users"),
-    name: v.string(),
-    phone: v.string(),
-    regionId: v.id("regions"),
-    referrerPhone: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    await checkRateLimit(ctx);
-
-    const region = await ctx.db.get(args.regionId);
-    if (!region) throw new Error("Wilayah tidak ditemukan.");
-
-    const existing = await ctx.db
-      .query("agents")
-      .withIndex("by_phone", (q) => q.eq("phone", args.phone))
-      .unique();
-    if (existing) throw new Error("Nomor HP sudah terdaftar.");
-
-    let referrerId: Id<"agents"> | undefined;
-    if (args.referrerPhone) {
-      const referrer = await ctx.db
-        .query("agents")
-        .withIndex("by_phone", (q) => q.eq("phone", args.referrerPhone!))
-        .unique();
-      if (!referrer) throw new Error("Kode referral tidak ditemukan.");
-      referrerId = referrer._id;
-    }
-
-    return await ctx.db.insert("agents", {
-      authUserId: args.authUserId,
-      name: args.name,
-      phone: args.phone,
-      level: 1,
-      status: "probation",
-      regionId: args.regionId,
-      referrerId,
-      enrolledAt: Date.now(),
-      escrowAmount: 0n,
-    });
-  },
-});
-
-/**
- * Internal: undo a half-finished registration — delete the auth user and its
- * credential accounts when the agent row could not be created (e.g. phone taken
- * after the account was already provisioned).
- */
-export const rollbackUser = internalMutation({
-  args: { userId: v.id("users") },
-  handler: async (ctx, { userId }) => {
-    const accounts = await ctx.db
-      .query("authAccounts")
-      .withIndex("userIdAndProvider", (q) => q.eq("userId", userId))
-      .collect();
-    for (const a of accounts) await ctx.db.delete(a._id);
-    await ctx.db.delete(userId);
-  },
-});
-
-/**
- * Self-serve salesperson registration. Creates an email+password auth account
- * (so the agent can sign in to the portal) and a probation `agents` row pending
- * admin approval. Honeypot + timing + rate-limit guard against bots.
- *
- * Runs as an action because `createAccount` (password hashing) needs an action
- * context; the agent row is written via the `attachAgent` internal mutation.
- */
-export const registerAgent = action({
+/** Public registration: creates a PENDING user plus an admin approval item. */
+export const registerPublic = mutation({
   args: {
     name: v.string(),
     email: v.string(),
-    password: v.string(),
-    phone: v.string(),
-    // Free-text geo hint (typically a city) captured client-side from an IP
-    // geo lookup. The backend resolves (finds-or-creates) the region via
-    // `regions.ensureRegion`; empty/invalid → default region. Registration
-    // must never fail solely because geo-lookup did.
-    geoHint: v.optional(v.string()),
-    referrerPhone: v.optional(v.string()),
-    // Honeypot: must be empty.
-    hp: v.string(),
-    // Milliseconds since page load when the form was submitted.
-    elapsed: v.number(),
+    intendedRole: v.union(v.literal("L1"), v.literal("L2")),
+    mobile: v.optional(v.string()),
   },
-  handler: async (ctx, args): Promise<{ ok: true }> => {
-    // Honeypot / timing — silently succeed so bots don't learn they were blocked.
-    if (args.hp !== "") return { ok: true };
-    if (args.elapsed < 3000) return { ok: true };
-
+  handler: async (ctx, args) => {
+    const email = cleanEmail(args.email);
+    await rateLimit(ctx, `register:${email}`, 5, 60 * 60 * 1000);
     const name = args.name.trim();
-    const email = args.email.trim().toLowerCase();
-    const phone = args.phone.replace(/\s+/g, "").trim();
-    const referrerPhone = args.referrerPhone?.replace(/\s+/g, "").trim() || undefined;
+    if (name.length < 2) fail("INVALID_NAME", "Nama terlalu pendek.");
+    await assertEmailFree(ctx, email);
+    const mobile = normalizeMobile(args.mobile);
+    await assertMobileFree(ctx, mobile);
 
-    if (name.length < 2) throw new Error("Nama minimal 2 karakter.");
-    if (!email.includes("@")) throw new Error("Email tidak valid.");
-    if (args.password.length < 8)
-      throw new Error("Kata sandi minimal 8 karakter.");
-    if (!/^[0-9]{8,15}$/.test(phone)) throw new Error("Nomor HP tidak valid.");
-
-    // Cheap pre-check before provisioning an account.
-    const taken: boolean = await ctx.runQuery(internal.registration.phoneTaken, {
-      phone,
+    const now = Date.now();
+    const userId = await ctx.db.insert("users", {
+      name,
+      email,
+      mobile,
+      role: args.intendedRole,
+      status: "PENDING",
+      registeredAt: now,
+      recruitmentSource: "PUBLIC",
     });
-    if (taken) throw new Error("Nomor HP sudah terdaftar.");
-
-    // Resolve the region from the client's geo hint (find-or-create). Done
-    // before account provisioning so a geo failure can't orphan an auth user.
-    const regionId = await ctx.runMutation(internal.regions.ensureRegion, {
-      hint: args.geoHint,
+    await ctx.db.insert("registrationRequests", {
+      email,
+      name,
+      mobile,
+      intendedRole: args.intendedRole,
+      status: "PENDING",
+      createdAt: now,
+      userId,
     });
+    await notifyAdmins(
+      ctx,
+      "REGISTRATION_PENDING",
+      "Pendaftaran baru",
+      `${name} (${args.intendedRole}) menunggu persetujuan.`,
+      "/admin/pengguna",
+    );
+    return null;
+  },
+});
 
-    // Provision the auth account (validates email uniqueness, hashes password).
-    let user;
-    try {
-      ({ user } = await createAccount(ctx, {
-        provider: "password",
-        account: { id: email, secret: args.password },
-        profile: { email },
-      }));
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "";
-      if (msg.includes("already exists"))
-        throw new Error(`Email ${email} sudah terdaftar.`);
-      throw err;
+export const inviteInfo = query({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    const invite = await ctx.db
+      .query("invites")
+      .withIndex("by_token", (q) => q.eq("token", args.token))
+      .unique();
+    if (!invite) return { valid: false as const, reason: "NOT_FOUND" };
+    if (invite.status !== "ACTIVE") return { valid: false as const, reason: invite.status };
+    const l2 = await ctx.db.get("users", invite.l2Id);
+    return { valid: true as const, l2Name: l2?.name ?? "" };
+  },
+});
+
+/** L2 invite: the invitee lands active under the inviting L2 (§5.3). */
+export const registerViaInvite = mutation({
+  args: {
+    token: v.string(),
+    name: v.string(),
+    email: v.string(),
+    mobile: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const invite = await ctx.db
+      .query("invites")
+      .withIndex("by_token", (q) => q.eq("token", args.token))
+      .unique();
+    if (!invite || invite.status !== "ACTIVE") {
+      fail("INVITE_INVALID", "Undangan tidak berlaku.");
     }
+    const email = cleanEmail(args.email);
+    const name = args.name.trim();
+    if (name.length < 2) fail("INVALID_NAME", "Nama terlalu pendek.");
+    await assertEmailFree(ctx, email);
+    const mobile = normalizeMobile(args.mobile);
+    await assertMobileFree(ctx, mobile);
 
-    // Link the agent row. On failure, roll back the orphaned auth user.
-    try {
-      await ctx.runMutation(internal.registration.attachAgent, {
-        authUserId: user._id,
-        name,
-        phone,
-        regionId,
-        referrerPhone,
-      });
-    } catch (err) {
-      await ctx.runMutation(internal.registration.rollbackUser, {
-        userId: user._id,
-      });
-      throw err;
-    }
+    const now = Date.now();
+    const userId = await ctx.db.insert("users", {
+      name,
+      email,
+      mobile,
+      role: "L1",
+      status: "ACTIVE",
+      registeredAt: now,
+      approvedAt: now,
+      assignedL2Id: invite.l2Id,
+      recruitedByL2Id: invite.l2Id,
+      recruitmentSource: "L2_INVITE",
+    });
+    await ctx.db.patch("invites", invite._id, {
+      status: "USED",
+      usedAt: now,
+      usedByUserId: userId,
+    });
+    await notify(
+      ctx,
+      invite.l2Id,
+      "INVITED_L1_REGISTERED",
+      "L1 baru bergabung",
+      `${name} mendaftar lewat undangan Anda.`,
+      "/l2/tim",
+    );
+    return null;
+  },
+});
 
-    return { ok: true };
+// --- L2 side ---------------------------------------------------------------
+
+export const createInvite = mutation({
+  args: { note: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const l2 = await requireL2(ctx);
+    const token = randomToken(18);
+    await ctx.db.insert("invites", {
+      l2Id: l2._id,
+      token,
+      status: "ACTIVE",
+      createdAt: Date.now(),
+      note: args.note?.trim() || undefined,
+    });
+    return { token };
+  },
+});
+
+export const myInvites = query({
+  args: {},
+  handler: async (ctx) => {
+    const l2 = await requireL2(ctx);
+    const invites = await ctx.db
+      .query("invites")
+      .withIndex("by_l2", (q) => q.eq("l2Id", l2._id))
+      .order("desc")
+      .take(50);
+    return Promise.all(
+      invites.map(async (i) => ({
+        id: i._id,
+        token: i.token,
+        status: i.status,
+        createdAt: i.createdAt,
+        note: i.note ?? null,
+        usedBy: i.usedByUserId
+          ? ((await ctx.db.get("users", i.usedByUserId))?.name ?? null)
+          : null,
+      })),
+    );
+  },
+});
+
+export const revokeInvite = mutation({
+  args: { inviteId: v.id("invites") },
+  handler: async (ctx, args) => {
+    const l2 = await requireL2(ctx);
+    const invite = await ctx.db.get("invites", args.inviteId);
+    if (!invite || invite.l2Id !== l2._id) fail("NOT_FOUND", "Undangan tidak ditemukan.");
+    if (invite.status !== "ACTIVE") fail("INVALID_STATE", "Undangan sudah dipakai.");
+    await ctx.db.patch("invites", invite._id, { status: "REVOKED" });
+    return null;
   },
 });

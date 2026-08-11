@@ -1,0 +1,14 @@
+3. L2 COMMISSION STRUCTURE
+   - L2 earns 10% of EACH L1 agent's total realized income (all commissions earned by that L1).
+   - L2 commission starts from MONTH 7 of each L1 agent's tenure (skipping the first 6 months of probation/ramp).
+   - L2 decay (applied to the 10% fee) per L1's tenure:
+
+   TENURE (L1 age)  | L2 DECAY FACTOR | EFFECTIVE L2 FEE
+   -----------------|-----------------|----------------------
+   Month 1–6        | 0%              | 0% (no fee)
+   Month 7–18       | 100%            | 10% of L1 income
+   Month 19–30      | 66%             | 6.6% of L1 income
+   Month 31–42      | 33%             | 3.3% of L1 income
+   Month 43+        | 0%              | 0% (L1 fully matures)
+
+   - Total earning window per L1 for L2 = 36 months (M7 to M42).

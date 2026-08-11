@@ -1,145 +1,144 @@
 import { httpRouter } from "convex/server";
-import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { ActionCtx, httpAction } from "./_generated/server";
 import { auth } from "./auth";
 import { signLicenseToken } from "./lib/licenseToken";
 
-const http = httpRouter();
+// Two authentication domains meet here (§4 / P10):
+//   * SellMore device endpoints — shared secret in X-AYO-API-KEY.
+//   * Payment gateway webhook  — HMAC signature over the raw body.
+// The PWA never calls these routes; it uses the Convex client with a session.
 
-// Convex Auth routes (sign-in / token refresh / etc.).
+const http = httpRouter();
 auth.addHttpRoutes(http);
 
-// ---------------------------------------------------------------------------
-// POS-facing API surface (Sellmore ↔ AYO).
-//
-// The POS is a cross-origin browser app, so every response carries CORS headers
-// and each route answers the preflight OPTIONS. An optional shared client key
-// (X-Sellmore-Client, checked against POS_CLIENT_KEY when configured) provides a
-// light gate; the short code itself remains the real secret, and redemption is
-// additionally rate-limited per device in the mutation layer.
-// ---------------------------------------------------------------------------
-
-const CORS_HEADERS: Record<string, string> = {
+const CORS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, X-Sellmore-Client",
+  "Access-Control-Allow-Headers":
+    "Content-Type, X-AYO-API-KEY, X-Sellmore-Client, X-Signature",
   "Access-Control-Max-Age": "86400",
 };
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+    headers: { "Content-Type": "application/json", ...CORS },
   });
 }
 
-const preflight = httpAction(async () => new Response(null, { status: 204, headers: CORS_HEADERS }));
+const preflight = httpAction(
+  async () => new Response(null, { status: 204, headers: CORS }),
+);
 
-/** Reject when POS_CLIENT_KEY is configured and the request key doesn't match. */
-function clientKeyRejected(req: Request): boolean {
-  const expected = process.env.POS_CLIENT_KEY;
-  if (!expected) return false; // gate disabled
-  return req.headers.get("X-Sellmore-Client") !== expected;
+/** Shared secret gate for every device endpoint. */
+function apiKeyRejected(req: Request): boolean {
+  const expected = process.env.AYO_SDK_API_KEY ?? process.env.POS_CLIENT_KEY;
+  if (!expected) return false; // no key configured yet — gate disabled
+  const provided =
+    req.headers.get("X-AYO-API-KEY") ?? req.headers.get("X-Sellmore-Client");
+  return provided !== expected;
 }
 
-// Map the mutation's thrown reasons to a stable { error } code + HTTP status.
-function redeemErrorResponse(message: string): Response {
-  const m = message.toLowerCase();
-  if (m.includes("not found"))
-    return json({ error: "invalid_code", message: "Kode tidak ditemukan." }, 404);
-  if (m.includes("already used"))
-    return json({ error: "code_used", message: "Kode sudah dipakai." }, 409);
-  if (m.includes("revoked"))
-    return json({ error: "code_revoked", message: "Kode dibatalkan." }, 409);
-  if (m.includes("expired"))
-    return json({ error: "code_expired", message: "Kode kedaluwarsa." }, 409);
-  if (m.includes("immutable"))
-    return json(
-      { error: "device_bound", message: "Perangkat sudah terikat ke agen lain." },
-      409,
-    );
-  if (m.includes("too many"))
-    return json({ error: "rate_limited", message: "Terlalu banyak percobaan." }, 429);
-  return json({ error: "activation_failed", message: "Aktivasi gagal." }, 400);
-}
-
-/** Shared handler for activate + renew (renewal reuses the same redeem path). */
-const redeemHandler = httpAction(async (ctx, req) => {
-  if (clientKeyRejected(req)) {
-    return json({ error: "unauthorized" }, 401);
-  }
-
-  let body: {
-    code?: unknown;
-    deviceId?: unknown;
-    merchantName?: unknown;
-    merchantLocation?: unknown;
-  };
+async function readJson(req: Request): Promise<Record<string, unknown> | null> {
   try {
-    body = await req.json();
+    const body: unknown = await req.json();
+    return body && typeof body === "object" ? (body as Record<string, unknown>) : null;
   } catch {
-    return json({ error: "bad_request", message: "Body JSON tidak valid." }, 400);
+    return null;
   }
+}
 
-  const code = typeof body.code === "string" ? body.code : "";
-  const deviceId = typeof body.deviceId === "string" ? body.deviceId : "";
-  if (!code || !deviceId) {
+const str = (value: unknown): string | undefined =>
+  typeof value === "string" && value.trim() !== "" ? value.trim() : undefined;
+
+const ERROR_COPY: Record<string, { status: number; message: string }> = {
+  invalid_code: { status: 404, message: "Kode tidak ditemukan." },
+  code_used: { status: 409, message: "Kode sudah dipakai." },
+  code_expired: { status: 409, message: "Kode kedaluwarsa." },
+  path_locked: { status: 409, message: "Tidak tersedia untuk perangkat ini." },
+  plan_missing: { status: 409, message: "Paket tidak tersedia." },
+  unknown_merchant: { status: 404, message: "Toko belum terdaftar." },
+  invalid_link: { status: 404, message: "Tautan tidak valid." },
+  link_expired: { status: 409, message: "Tautan kedaluwarsa." },
+  link_closed: { status: 409, message: "Tautan sudah tidak berlaku." },
+  already_paid: { status: 409, message: "Pembayaran sudah tercatat." },
+  invalid_seat: { status: 404, message: "Kursi tidak ditemukan." },
+  seat_used: { status: 409, message: "Kursi sudah dipakai." },
+  seat_link_expired: { status: 409, message: "Tautan kursi kedaluwarsa." },
+  no_seat: { status: 404, message: "Tidak ada kursi tersedia." },
+  NOT_PROSPECT: { status: 409, message: "Toko sudah berlangganan." },
+};
+
+function errorResponse(code: string): Response {
+  const copy = ERROR_COPY[code] ?? { status: 400, message: "Permintaan gagal." };
+  return json({ error: code, message: copy.message }, copy.status);
+}
+
+const LIFETIME_HORIZON_MS = 100 * 365 * 24 * 60 * 60 * 1000;
+
+function tierFor(planKey: string): string {
+  if (planKey === "MONTHLY") return "monthly";
+  if (planKey === "YEARLY") return "annual";
+  return "lifetime";
+}
+
+// ---------------------------------------------------------------------------
+// SellMore POS compatibility surface (unchanged contract).
+// The POS types a short SM-XXXX code and receives a signed offline token.
+// ---------------------------------------------------------------------------
+
+const redeemHandler = httpAction(async (ctx, req) => {
+  if (apiKeyRejected(req)) return json({ error: "unauthorized" }, 401);
+  const body = await readJson(req);
+  if (!body) return json({ error: "bad_request", message: "Body JSON tidak valid." }, 400);
+
+  const code = str(body.code);
+  const storeId = str(body.deviceId) ?? str(body.storeId);
+  if (!code || !storeId) {
     return json(
       { error: "bad_request", message: "code dan deviceId wajib diisi." },
       400,
     );
   }
 
-  try {
-    const result = await ctx.runMutation(internal.licenses.redeemByCode, {
-      code,
-      deviceId,
-      merchantName:
-        typeof body.merchantName === "string" ? body.merchantName : undefined,
-      merchantLocation:
-        typeof body.merchantLocation === "string"
-          ? body.merchantLocation
-          : undefined,
-    });
-    const token = await signLicenseToken(
-      result.effectiveActiveUntil,
-      result.agentId ?? undefined,
-    );
-    return json({
-      token,
-      tier: result.tier,
-      activeUntil: new Date(result.effectiveActiveUntil).toISOString(),
-    });
-  } catch (err) {
-    return redeemErrorResponse(
-      err instanceof Error ? err.message : "activation_failed",
-    );
-  }
+  const result = await ctx.runMutation(internal.sdk.redeemSubscriptionCode, {
+    code,
+    storeId,
+    storeName: str(body.merchantName) ?? str(body.storeName),
+    location: str(body.merchantLocation) ?? str(body.location),
+  });
+  if (!result.ok) return errorResponse(result.error);
+
+  const activeUntil = result.lifetime
+    ? Date.now() + LIFETIME_HORIZON_MS
+    : (result.expiresAt ?? Date.now());
+  const token = await signLicenseToken(activeUntil);
+  return json({
+    token,
+    tier: tierFor(result.planKey),
+    activeUntil: new Date(activeUntil).toISOString(),
+    redemptionType: result.redemptionType,
+  });
 });
 
-/** Online re-check of a device's current license status. */
 const validateHandler = httpAction(async (ctx, req) => {
-  if (clientKeyRejected(req)) {
-    return json({ error: "unauthorized" }, 401);
-  }
-  let body: { deviceId?: unknown };
-  try {
-    body = await req.json();
-  } catch {
-    return json({ error: "bad_request" }, 400);
-  }
-  const deviceId = typeof body.deviceId === "string" ? body.deviceId : "";
-  if (!deviceId) return json({ error: "bad_request" }, 400);
+  if (apiKeyRejected(req)) return json({ error: "unauthorized" }, 401);
+  const body = await readJson(req);
+  const storeId = body ? (str(body.deviceId) ?? str(body.storeId)) : undefined;
+  if (!storeId) return json({ error: "bad_request" }, 400);
 
-  const status = await ctx.runQuery(internal.licenses.statusByDevice, {
-    deviceId,
-  });
-  if (!status) return json({ status: "none" });
+  const state = await ctx.runQuery(internal.sdk.merchantState, { storeId });
+  if (state.state === "PROSPECT") return json({ status: "none", state: "PROSPECT" });
+  const active =
+    state.state === "LIFETIME" ||
+    (state.expiresAt !== null && state.expiresAt > Date.now());
   return json({
-    status: status.status,
-    tier: status.tier,
-    expiresAt: status.expiresAt ? new Date(status.expiresAt).toISOString() : null,
-    creditDays: status.creditDays,
+    status: active ? "active" : "expired",
+    state: state.state,
+    tier: state.planKey ? tierFor(state.planKey) : null,
+    expiresAt: state.expiresAt ? new Date(state.expiresAt).toISOString() : null,
+    creditDays: 0,
   });
 });
 
@@ -150,13 +149,169 @@ for (const path of ["/api/v1/activate", "/api/v1/renew"]) {
 http.route({ path: "/api/v1/validate", method: "OPTIONS", handler: preflight });
 http.route({ path: "/api/v1/validate", method: "POST", handler: validateHandler });
 
-// Not yet implemented (later milestones): keep the contract visible.
-const notImplemented = httpAction(async () => json(
-  { error: "not_implemented", message: "Endpoint belum diaktifkan." },
-  501,
-));
-http.route({ path: "/api/v1/backup-auth", method: "POST", handler: notImplemented });
-http.route({ path: "/api/v1/report-event", method: "POST", handler: notImplemented });
-http.route({ path: "/api/v1/promos", method: "GET", handler: notImplemented });
+// ---------------------------------------------------------------------------
+// AYO SDK contract (§39.3).
+// ---------------------------------------------------------------------------
+
+const sdkRoute = (
+  handler: (ctx: ActionCtx, body: Record<string, unknown>) => Promise<Response>,
+) =>
+  httpAction(async (ctx, req) => {
+    if (apiKeyRejected(req)) return json({ error: "unauthorized" }, 401);
+    const body = await readJson(req);
+    if (!body) return json({ error: "bad_request" }, 400);
+    return await handler(ctx, body);
+  });
+
+const routes: Record<string, ReturnType<typeof sdkRoute>> = {
+  "/sdk/merchant-state": sdkRoute(async (ctx, body) => {
+    const storeId = str(body.storeId);
+    if (!storeId) return json({ error: "bad_request" }, 400);
+    return json(await ctx.runQuery(internal.sdk.merchantState, { storeId }));
+  }),
+
+  "/sdk/path-lock": sdkRoute(async (ctx, body) => {
+    const storeId = str(body.storeId);
+    if (!storeId) return json({ error: "bad_request" }, 400);
+    return json(
+      await ctx.runMutation(internal.sdk.pathLockCheck, {
+        storeId,
+        storeName: str(body.storeName),
+      }),
+    );
+  }),
+
+  "/sdk/redeem": sdkRoute(async (ctx, body) => {
+    const code = str(body.code);
+    const storeId = str(body.storeId);
+    if (!code || !storeId) return json({ error: "bad_request" }, 400);
+    const result = await ctx.runMutation(internal.sdk.redeemSubscriptionCode, {
+      code,
+      storeId,
+      storeName: str(body.storeName),
+      location: str(body.location),
+    });
+    if (!result.ok) return errorResponse(result.error);
+    return json(result);
+  }),
+
+  "/sdk/self-renew": sdkRoute(async (ctx, body) => {
+    const storeId = str(body.storeId);
+    const planKey = str(body.planKey);
+    if (!storeId || !planKey) return json({ error: "bad_request" }, 400);
+    const result = await ctx.runMutation(internal.sdk.reportSelfRenewal, {
+      storeId,
+      planKey,
+      amountPaid: typeof body.amountPaid === "number" ? body.amountPaid : undefined,
+    });
+    if (!result.ok) return errorResponse(result.error);
+    const token = await signLicenseToken(result.expiresAt);
+    return json({ ...result, token });
+  }),
+
+  "/sdk/lifetime/pay": sdkRoute(async (ctx, body) => {
+    const token = str(body.token);
+    const storeId = str(body.storeId);
+    if (!token || !storeId) return json({ error: "bad_request" }, 400);
+    const result = await ctx.runMutation(internal.sdk.payLifetimeLink, {
+      token,
+      storeId,
+      storeName: str(body.storeName),
+    });
+    if (!result.ok) return errorResponse(result.error);
+    const licence = await signLicenseToken(Date.now() + LIFETIME_HORIZON_MS);
+    return json({ ...result, token: result.activated ? licence : null });
+  }),
+
+  "/sdk/seat/activate": sdkRoute(async (ctx, body) => {
+    const seatToken = str(body.seatToken);
+    const storeId = str(body.storeId);
+    if (!seatToken || !storeId) return json({ error: "bad_request" }, 400);
+    const result = await ctx.runMutation(internal.sdk.activateSeatByToken, {
+      seatToken,
+      storeId,
+      storeName: str(body.storeName),
+    });
+    if (!result.ok) return errorResponse(result.error);
+    const licence = await signLicenseToken(Date.now() + LIFETIME_HORIZON_MS);
+    return json({ ok: true, token: licence, tier: "lifetime" });
+  }),
+
+  "/sdk/seat/regenerate": sdkRoute(async (ctx, body) => {
+    const storeId = str(body.storeId);
+    if (!storeId) return json({ error: "bad_request" }, 400);
+    const result = await ctx.runMutation(internal.sdk.regenerateSeatLink, { storeId });
+    if (!result.ok) return errorResponse(result.error);
+    return json(result);
+  }),
+
+  "/sdk/seats": sdkRoute(async (ctx, body) => {
+    const storeId = str(body.storeId);
+    if (!storeId) return json({ error: "bad_request" }, 400);
+    return json({ seats: await ctx.runQuery(internal.sdk.seatPool, { storeId }) });
+  }),
+};
+
+for (const [path, handler] of Object.entries(routes)) {
+  http.route({ path, method: "OPTIONS", handler: preflight });
+  http.route({ path, method: "POST", handler });
+}
+
+// ---------------------------------------------------------------------------
+// Payment gateway webhook (§13). The gateway echoes the link token as its
+// reference; the signature is an HMAC-SHA256 of the raw body.
+// ---------------------------------------------------------------------------
+
+async function signatureValid(raw: string, provided: string | null): Promise<boolean> {
+  const secret = process.env.PAYMENT_WEBHOOK_SECRET;
+  if (!secret || !provided) return false;
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(raw));
+  const expected = Array.from(new Uint8Array(mac))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  return expected === provided.toLowerCase();
+}
+
+http.route({
+  path: "/webhooks/payment",
+  method: "POST",
+  handler: httpAction(async (ctx, req) => {
+    const raw = await req.text();
+    if (!(await signatureValid(raw, req.headers.get("X-Signature")))) {
+      return json({ error: "invalid_signature" }, 401);
+    }
+    let body: Record<string, unknown>;
+    try {
+      body = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      return json({ error: "bad_request" }, 400);
+    }
+
+    const token = str(body.reference) ?? str(body.external_id);
+    const status = (str(body.status) ?? "").toUpperCase();
+    if (!token) return json({ error: "bad_request" }, 400);
+
+    if (status === "FAILED" || status === "EXPIRED") {
+      await ctx.runMutation(internal.payments.failPaymentByToken, { token });
+      return json({ received: true });
+    }
+
+    const result = await ctx.runMutation(internal.payments.processPaymentByToken, {
+      token,
+      gatewayRef: str(body.id),
+      idempotencyKey: str(body.id),
+      buyerStoreId: str(body.storeId),
+    });
+    // Always 200 on a verified delivery so the gateway stops retrying.
+    return json({ received: true, ...result });
+  }),
+});
 
 export default http;

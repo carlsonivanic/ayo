@@ -1,0 +1,832 @@
+====================================================================
+AYO — BACKEND TECHNICAL SPECIFICATION
+Version 1.3.1 | Status: Agreed
+Basis: AYO Consolidated Reference (Functional Spec v2.0 + L1/L2
+Commission Schemes) — SINGLE SOURCE OF TRUTH.
+--------------------------------------------------------------------
+CHANGE LOG v1.3.1 (= v1.3 + four surgical fixes):
+FIX-1 §6.3 Step 3 rewritten MD-2-aware (removed Step2-vs-Step3
+contradiction; both MD-2 branches defined; default = accept).
+FIX-2 §8.3 L2-fee bullet wires schemeSettings.l2.includeJaminan
+(default false -> base = gross only, §16.4/§16.7). §17.5 clause
+touched for consistency.
+FIX-3 §8.3 Warmth bullet makes consecutiveSub5Months reset (=0 on
+WARM) and start (increments only tenureMonth >= 4) explicit.
+FIX-4 §6.2 adds Commission Ledger retention NOTE; promoted to DI-6.
+--------------------------------------------------------------------
+CHANGE LOG v1.3 (= v1.2 audit + mobile amendment):
+C1  Removed PROSPECT from merchants.subscriptionStatus (SUBSCRIBED|
+CHURNED|LIFETIME per §37). PROSPECT = absence of a merchant row
+(§39.2). pathLockCheck creates NO PROSPECT row; row created only
+at first activation. Added buyerSellMoreStoreId [EXTENSION].
+C2  P1 rewritten: no SELF-SERVICE refunds; admin manual refund
+exceptions allowed (§3.6/§19.1/Edge 31). Added
+processManualRefundException.
+C3  Added all admin mutations (reason + audit): manualHeldRelease,
+reassignMerchantOwnership, processManualRefundException,
+reissueExpiredCode (§5.5), editPayoutProfile, updateSchemeSettings;
+added queryAuditLog. Distinguished reassignMerchantOwnership vs
+resolveFrozenOwnerCommission (§19.1).
+H1  §1.2 business targets reclassified [ASSUMPTION — confirm owner];
+§1.3 load profile depends on them.
+H2  P5 90-day retention tagged [EXTENSION]; archival guarantees +
+VT-1..VT-4; added merchantEarningHistory [EXTENSION].
+H3  All beyond-§37 tables/fields tagged [EXTENSION] with justification.
+B1  Added L1 Projection query (§13).
+B2  Added L2 Recruitment tracking (§17).
+B3  Held-release timing surfaced as Decision Item DI-1.
+B4  Weekly-payout true-up surfaced as Decision Item DI-2.
+B5  Added My Customers (§38.1) + Team Customers (§38.2) queries.
+B6  Added schemeSettings + updateSchemeSettings (§21.1-21.10).
+B7  Defined trigger + mechanism for EVERY §28 notification; retained
+NO customer-renewed notification.
+B8  Added Map (§26), Discord (§27), Money Display (§29) contracts (§18).
+MOB Added users.mobile field + by_mobile index + E.164 normalization
+(auto-prefix 0811xxx -> +62811xxx; strip space/dash); unique when
+present; reserved as future username/account. MD-1/MD-2.
+====================================================================
+
+
+====================================================================
+1. SCOPE & GOALS
+====================================================================
+
+1.1 Purpose
+Backend for AYO, the sales & coordination app for SellMore POS.
+Handles L1/L2 agents, payment links (QRIS/card), subscription codes,
+lifetime seats with path-lock, commission engine, payouts, admin
+operations, reports, authentication/authorization, and the
+SellMore-embedded SDK API.
+
+1.2 Business Targets — [ASSUMPTION — confirm with owner]
+- 1,000,000 SellMore merchants in first 2 years. (Not in locked spec.)
+- Distribution ~80% subscribers / 20% lifetime. (Not in locked spec.)
+
+1.3 Derived Load Profile (depends on §1.2 assumptions — see DI-3)
+- ~41,700 new merchants/month ≈ 1,400/day; renewals worst-case
+~13,000/day (peaks 20-50 req/s).
+- Highest-frequency endpoints: SDK lookups by sellMoreStoreId (cacheable).
+- Data volume ≈ 5-20 GB over 2 years.
+- Conclusion: data-volume + business-rule problem, not throughput.
+
+
+====================================================================
+2. TECHNOLOGY STACK DECISION
+====================================================================
+
+2.1 Chosen Stack: Convex.dev
+- Reactive TypeScript backend-as-a-service.
+- Database: Convex document DB (ACID transactions per mutation).
+- Functions: query (reactive), mutation, action, internalMutation.
+- HTTP: httpAction + httpRouter for payment webhooks.
+- Cron: built-in crons (daily/weekly/monthly/interval).
+- Auth: @convex-dev/auth (email OTP) + Resend for OTP email delivery.
+
+2.2 Why Convex
+- Real-time dashboards: PENDING -> CONFIRMED flips live, zero polling.
+- TypeScript end-to-end; shared types with the PWA.
+- Built-in scheduler fits monthly/weekly job profile.
+- Transactional mutations suit the append-only ledger.
+- Generous free tier for MVP.
+
+2.3 Options evaluated and set aside
+| Option | Verdict |
+| NestJS + PostgreSQL | Strong fallback if Convex limits are hit |
+| Supabase (Postgres) | Best BaaS free tier; awkward for heavy batch |
+| Laravel + Filament | Best if admin UI speed / ID talent dominates |
+| Go + PostgreSQL | Cheapest runtime; slower dev velocity for rules |
+| Next.js + Neon | Weakest for background jobs |
+| Cloudflare D1 | Great SDK latency; worker CPU limits hurt batch |
+| MongoDB | Poor fit for relational overrides & SQL-style reports |
+
+2.4 Known Convex constraints (mitigations)
+- No SQL GROUP BY -> maintain monthly summary docs; reports read summaries.
+- Heavy exports -> CSV in actions; PDF via PWA print stylesheet.
+- Long month-end jobs -> fan out one scheduled mutation per L1.
+- Free tier pauses on inactivity -> paid plan before real money.
+
+
+====================================================================
+3. ARCHITECTURE PRINCIPLES
+====================================================================
+
+P1 (REVISED). Append-only ledger. No SELF-SERVICE refunds/cancellations.
+Admin may process manual refund exceptions with reason + audit
+(§3.6/§19.1/Edge 31; chargeback Edge 17 -> admin adjustment). Earnings
+are INSERTed; provisional PENDING records are resolved, never deleted.
+
+P2. Provisional PENDING earnings. Created at payment to the SELLER
+(tentative NEW_SALES at Y1). Resolved at redemption:
+- First-time: patch to CONFIRMED NEW_SALES (amount finalized).
+- Renewal: seller patched to CONFIRMED RENEWAL_INCENTIVE (2%); owner's
+RECURRING is a fresh insert. Never deleted.
+
+P3. Acquisitions are first-class events (separate table): expired-unused
+code keeps the NEW_SALES earning but must NOT count as acquisition (§6.2).
+Warmth/Jaminan/Target count acquisitions.
+
+P4. Short-lived codes (max 7 days). USED/EXPIRED codes are dead artifacts;
+only a lightweight reissue index retained.
+
+P5 (REVISED). 90-day live retention is [EXTENSION / backend decision],
+not in locked spec. ARCHIVAL GUARANTEE: archival NEVER removes data
+required by locked features. Retained long-term (exempt from archival):
+monthlyL1Summaries, monthlyL2Summaries, merchantEarningHistory,
+acquisitions, payoutLines, and all lifetimeSeats (esp. unactivated).
+Verification tests VT-1..VT-4 (§6.2).
+
+P6. Idempotent webhooks (link-status guard + gateway idempotency key);
+Convex serializes per-document mutations.
+
+P7. Earning month follows PAYMENT date; acquisition month follows
+REDEMPTION date (§6.1).
+
+P8. Payouts pay ONLY CONFIRMED earnings (§11.8).
+
+P9. Never trust client-supplied identity; derive from authenticated session.
+
+P10. Separate auth domains: PWA session auth vs SDK/webhook service auth.
+
+
+====================================================================
+4. SECURITY MODEL OVERVIEW
+====================================================================
+
+Two domains — do NOT gate device calls behind user login:
+| Domain | Callers | Mechanism |
+| PWA user endpoints | L1/L2/Admin via PWA | @convex-dev/auth session + role guards |
+| SellMore SDK endpoints | SellMore app (device) | X-AYO-API-KEY |
+| Payment webhooks | QRIS gateway | Gateway signature verification |
+
+- PWA endpoints: requireViewer / requireRole / requireAdmin guards.
+- SDK endpoints (redeemSubscriptionCode, activateLifetimeSeat,
+queryMerchantState, reportSelfRenewal, regenerateSeatLink): validate
+X-AYO-API-KEY header (env-stored) at top of each mutation.
+- Webhook (/webhooks/payment): verify Xendit/Midtrans signature; reject
+on mismatch.
+
+
+====================================================================
+5. AUTHENTICATION & AUTHORIZATION
+====================================================================
+
+5.1 Auth stack (§3.1 — email OTP, no password)
+- @convex-dev/auth component (convex.config.ts: app.use(auth)).
+- Provider: OTP with 6-digit generateCode; sendVerificationRequest calls
+Resend (10-minute expiry).
+- convex/auth.ts exports: auth, signIn, signOut, store.
+- auth.config.ts references CONVEX_SITE_URL, applicationID "convex".
+- Env: RESEND_API_KEY, OTP_EMAIL_FROM.
+- NOTE: verify OTP option names + user-table binding against installed
+version; add email-merge claimProfile if the library creates a separate
+auth user on first OTP.
+
+5.2 Authorization guards (convex/lib/authz.ts), via getAuthUserId,
+typed errors via ConvexError:
+    getViewer(ctx)            -> user | null
+    requireViewer(ctx)        -> user; throws UNAUTHENTICATED / SUSPENDED
+    requireActive(ctx)        -> user; throws NOT_ACTIVE (blocks PENDING)
+    requireRole(ctx, roles[]) -> user; throws FORBIDDEN
+    requireAdmin = requireRole([ADMIN]); requireL1 = requireRole([L1]);
+    requireL2 = requireRole([L2])
+SUSPENDED rejected at requireViewer (A-3). PENDING may authenticate to
+read own status but is blocked from role-gated actions by requireActive.
+
+5.3 Registration flows (§3.2) — three methods, all active
+- Public: registerPublic(name,email,intendedRole[,mobile]) ->
+registrationRequests PENDING. Admin approves -> materialize ACTIVE.
+- L2 invite: createInvite (requireL2) -> invites row + link;
+registerViaInvite(token,name,email[,mobile]) -> ACTIVE under inviter;
+assignedL2Id = recruitedByL2Id = inviter; source L2_INVITE; invite USED.
+Recruitment credit to inviter (§17.2).
+- Admin create: adminCreateUser (requireAdmin) -> ACTIVE, role + optional
+assignedL2Id; source ADMIN_CREATE.
+
+5.4 User management (§19.1), all requireAdmin + audit
+approveRegistration, rejectRegistration, setUserStatus(ACTIVE|SUSPENDED,
+reason), assignL1ToL2 (future L2 -> new; recruitment credit stays with
+original recruiter per §19.2). All admin actions write auditLogEntries (§32).
+
+5.5 Guard application
+- Reports (§24): requireAdmin on every export.
+- Admin mutations: drop client-passed adminId; derive via requireAdmin.
+- L1/L2 dashboards: requireL1/requireL2 + data-scoping.
+- SDK endpoints: requireApiKey. Webhook: gateway signature.
+
+5.6 Role redirect (client, §3.1): users.me -> /login, /pending-approval,
+/suspended, /l1, /l2, /admin.
+
+5.7 Auth acceptance mapping (§36.2): A-1 me+redirect; A-2 OTP verify;
+A-3 requireViewer SUSPENDED; A-4 registerPublic PENDING; A-5 invite ACTIVE.
+
+
+====================================================================
+6. DATA MODEL
+====================================================================
+
+6.1 Tables (locked §37 fields kept; extensions tagged)
+
+users (§37 + mob extension)
+  name, email, role(L1|L2|ADMIN), status(PENDING|ACTIVE|SUSPENDED),
+  registeredAt, approvedAt, firstPaymentAt, tenureMonth, assignedL2Id,
+  recruitedByL2Id, recruitmentSource(L2_INVITE|PUBLIC|ADMIN_CREATE),
+  payoutFrequency(WEEKLY|MONTHLY),
+  + mobile (optional string; normalized E.164; unique when present)
+     [EXTENSION — owner requirement; informational today, reserved as
+      future username/account; NOT used for auth (login stays email OTP)]
+  indexes: by_email, by_role, by_status, by_l2(assignedL2Id), + by_mobile
+
+invites: l2Id, token, status(ACTIVE|USED|REVOKED), createdAt. idx by_token.
+
+registrationRequests: email, name, intendedRole(L1|L2),
+  status(PENDING|APPROVED|REJECTED), createdAt. idx by_email, by_status.
+
+payoutProfiles (§37): userId, bankName, accountNumber, accountName,
+  completed. idx by_user.
+
+merchants (C1): sellMoreStoreId, storeName, ownerL1Id(nullable),
+  firstPaymentAt, firstActivatedAt, currentPlanId,
+  subscriptionStatus(SUBSCRIBED|CHURNED|LIFETIME)  [PROSPECT removed;
+  PROSPECT = absence of row (§39.2)], currentExpiryAt, lifetimeActivatedAt.
+  idx: by_store_id, by_owner, by_status.
+
+productPlans (§37 + ext): name, price, priceUnit,
+  category(SUBSCRIPTION|LIFETIME), commissionType(RECURRING_Y|ONE_TIME),
+  y1Percent, y2Percent, y3Percent, y4PlusPercent, oneTimePercent, seatCount,
+  active; + renewalPrice [EXTENSION — §20.2/Edge 13 preserves pre-change
+  price for renewals under "new sales only"].
+
+paymentLinks (§37 + ext): l1Id, planId, amount,
+  status(SHARED|PAID|FAILED|EXPIRED), createdAt, expiresAt, paidAt, failedAt,
+  codeIds[]; + idempotencyKey [EXTENSION — Edge 1/P6 idempotent webhooks];
+  + buyerMerchantId [EXTENSION — §4.5/§15.6 lifetime deep-link binds buyer;
+  nullable]. idx: by_l1, by_paidAt.
+
+subscriptionCodes (§37): code, paymentLinkId, l1Id, planId,
+  status(UNUSED|USED|EXPIRED), generatedAt, expiresAt, usedAt, storeName,
+  originalCodeId, replacementCodeId, redemptionType(FIRST_ACTIVATION|RENEWAL).
+  idx: by_code, by_expiry_status, by_usedAt. (originalCodeId/
+  replacementCodeId serve §5.5 reissue.)
+
+lifetimeSeats (§37 + ext): paymentLinkId, buyerMerchantId (locked §37;
+  nullable, set at activation), + buyerSellMoreStoreId [EXTENSION —
+  §39.2/§15.6: PROSPECT buyer has no row; identity carried until
+  activation], sellerL1Id, planId, seatIndex,
+  status(POOLED|GIFT_LINK_ACTIVE|ACTIVATED), assignedToMerchantId,
+  activationLinkToken, linkGeneratedAt, linkExpiresAt, activatedAt,
+  regenerationCount. idx: by_token, by_status, by_buyer_store_id.
+
+earningLines (§37 + ext): l1Id, date, period, type, planId, amount,
+  merchantId, status(PENDING|CONFIRMED), sourceCodeId;
+  + frozen [EXTENSION — §14.6/§24.3 owner-suspended recurring frozen];
+  + settledToCompany [EXTENSION — §14.6 admin "settle to company"].
+  idx: by_l1_period, by_period, by_code(sourceCodeId), by_frozen, by_merchant.
+
+acquisitions [EXTENSION — §6/§6.2/§10.3/§7.1/§8.1]: l1Id, merchantId,
+  period, date, sourceType(CODE|SEAT), sourceId. idx by_l1_period, by_period.
+
+l1States [EXTENSION — §8.1 Cold consecutive count; §9 held balance]:
+  l1Id, consecutiveSub5Months, heldBalance. idx by_l1.
+
+monthlyL1Summaries [EXTENSION — §12.3/§24/P5 rollup]: l1Id, period,
+  tenureMonth, activationCount, gross, jaminan, warmthState, heldPercent,
+  heldAmount, releasedAmount, l2FeeBase, settled [EXTENSION — §11.4 true-up].
+  idx: by_l1_period, by_period, by_l1_settled.
+
+monthlyL2Summaries [EXTENSION — §18.2/§24.9 L2 fee rollup]: l2Id, period,
+  totalFee, settled [EXTENSION]. idx by_l2_period.
+
+merchantEarningHistory [EXTENSION — §38.1/§24.10/P5: retained per-merchant
+  payment+commission history; exempt from 90-day archival]: merchantId,
+  recipientL1Id, date, period, type, amount, planId, method(CODE|SELF).
+  idx: by_merchant, by_merchant_date.
+
+heldRecords (§37 + ext): l1Id, period, gross, heldPercent, heldAmount,
+  releasedAmount, releasedAt, status(HELD|RELEASED);
+  + settled [EXTENSION — §11.4/§9.4]. idx: by_l1_period, by_period, by_l1_settled.
+
+l2EarningLines (§37): l2Id, l1Id, period, l1TenureMonth, stage, l1Gross,
+  effectiveFeePercent, l2Fee. idx by_l2_period, by_period.
+
+payoutLines (§37): userId, role, period, frequency, payoutDate, gross,
+  jaminan, held, releasedHeld, adjustment, payable, status
+  (SCHEDULED|PAID|FAILED), paidAt. idx: by_user_period, by_status, by_period.
+
+scheduledPriceChanges (§37): planId, oldPrice, newPrice, effectiveDate,
+  applyMode(NEW_SALES_ONLY|ALL_USERS), status(SCHEDULED|APPLIED), createdBy,
+  createdAt. idx by_status_effective.
+
+schemeSettings [EXTENSION — §21.1-21.10 all admin-configurable]: single doc
+  guarantee{enable,months,target,minActivations,topUp},
+  warmth{startAfterMonth,warmThreshold,warmPayout,warmHeld,coolPayout,
+         coolHeld,coldPayout,coldHeld,coldConsecutive,releaseThreshold},
+  l1Target{m1_3,m4_6,m7_9,m10_11,m12Plus},
+  l2{basePercent,startMonth,includeJaminan,decayM7_18,decayM19_30,decayM31_42},
+  recruitment{target,countOnlyInvited,event,reset}, payout{...},
+  moneyDisplay{mode ROUNDED|DECIMAL}, renewalIncentivePercent,
+  ownershipWindowMonths, allowDirectLifetimePurchase,
+  allowDirectSubscriptionPurchase, seatLinkExpiryDays.
+
+discordSettings [EXTENSION — §27.3 admin webhook config]: webhookUrl, enabled.
+
+auditLogEntries | announcements | notifications — per §37.
+
+6.2 Retention model (P5, REVISED — H2)
+90-day live retention is [EXTENSION/backend decision]. Archival NEVER removes
+locked-feature data. Retained long-term: monthlyL1Summaries,
+monthlyL2Summaries, merchantEarningHistory, acquisitions, payoutLines, all
+lifetimeSeats. Verification tests:
+- VT-1 All-time earning (§12.3): after archiving a >90-day month, all-time
+earning still equals Σ monthlyL1Summaries.gross.
+- VT-2 My Customers payment history (§38.1): after archival,
+getMyCustomerDetail.paymentHistory returns all historical payments from
+merchantEarningHistory.
+- VT-3 Merchant Report total owner earning (§24.10): after archival, equals
+Σ merchantEarningHistory.amount for owner.
+- VT-4 Liability unactivated-seat obligation (§24.3): unactivated seats
+always counted regardless of age (§25.5 open-ended).
+NOTE (Commission Ledger): earningLines are archived per P5; line-level
+Commission Ledger detail is guaranteed for the live 90-day window. Beyond
+90d, per-L1 commission is served from monthlyL1Summaries + acquisitions
+(aggregate) and merchantEarningHistory (per-merchant). If line-level
+historical ledger is required, retain earningLines long-term — promote to
+DI-6.
+
+6.3 Mobile normalization (users.mobile) — applied on EVERY write
+Write paths: registerPublic, registerViaInvite, adminCreateUser, profile/
+self-update, admin user edit. Store ONLY the normalized value.
+Step 1 Clean: strip all whitespace and dashes (accept and ignore).
+"0811 1234 5678" -> "081112345678"; "0811-1234-5678" -> "081112345678".
+Step 2 Auto-prefix to E.164:
+starts with "0"        -> replace leading 0 with +62 (0811xxx->+62811xxx)
+starts with "+62"      -> keep as-is
+starts with "62" (no+) -> prepend "+"  [MD-1: confirm]
+starts with other "+"  -> keep as-is (international) [MD-2: default accept]
+otherwise              -> reject as invalid
+Step 3 Validate (MD-2-aware; Empty/omitted allowed — optional field):
+- Starts with "+62": must be +62 followed by 8-12 digits; else reject.
+- International (other "+"):
+    * MD-2 = accept (default): accept if plausible E.164 (leading +,
+      7-15 digits total); else reject.
+    * MD-2 = reject (ID-only): reject any non-+62 value.
+- CONSISTENCY NOTE: Step 2 preserves international values; Step 3 must
+  NOT unconditionally reject them. Behavior follows MD-2. Until MD-2 is
+  decided, default = accept (matches MD-2 label).
+Uniqueness: Convex has no native unique index; enforce in write mutation via
+by_mobile lookup. Enforce uniqueness on non-empty mobile from day one. On
+profile edit, exclude the user's own current value. Mobile is informational
+only in MVP (no OTP/login); auth stays email OTP (§3.1).
+
+
+====================================================================
+7. CORE FLOWS
+====================================================================
+
+7.1 Subscription sell flow (unchanged)
+createPaymentLink (single-use, 24h) -> WhatsApp -> gateway webhook ->
+processPayment (idempotent): guard link.status != SHARED -> dedupe;
+FAILED -> FAILED; PAID -> generate code (UNUSED,7d) + insert PENDING earning
+to seller (tentative NEW_SALES, price x y1Percent) + notify L1 -> L1 sends code.
+
+7.2 Lifetime sell flow (REVISED — C1)
+createLifetimeDeepLink -> buyer taps -> SellMore identifies ->
+pathLockCheck(sellMoreStoreId) BEFORE payment: look up merchant; NO row =
+PROSPECT -> allow; row SUBSCRIBED/CHURNED/LIFETIME -> block + admin notify.
+pathLockCheck creates NO merchant row. Buyer pays (identity carried as
+buyerSellMoreStoreId) -> onLifetimePaid: CONFIRMED NEW_SALES to seller =
+price x oneTimePercent; seat pool created (Single=1/Duo=2) tagged with
+buyerSellMoreStoreId. Single: seat AUTO-ACTIVATES for buyer at payment ->
+merchant row created as LIFETIME at this activation. Duo: seats POOLED
+until activation.
+
+7.3 Code redemption (redeemSubscriptionCode)
+Identity (sellMoreStoreId) known only here. Lookup code; reject USED/EXPIRED.
+- FIRST-TIME (new merchant): owner=seller (permanent); merchant row created
+SUBSCRIBED; seller PENDING -> CONFIRMED NEW_SALES (price x y1Percent);
+acquisition recorded (period=redemption month); code USED, FIRST_ACTIVATION.
+- RENEWAL (existing): ownerRecurring = price x yRate(merchant tenure at
+payment date); seller PENDING -> CONFIRMED RENEWAL_INCENTIVE (price x 2%);
+owner RECURRING inserted (CONFIRMED; frozen=true if owner SUSPENDED);
+ownerless owner -> no owner line (company retains Y); seller still 2%;
+subscription extended from USED date; code USED, RENEWAL; NO acquisition;
+ownership unchanged.
+- After 36-month window: ownerRecurring = 0.
+
+7.4 Lifetime seat activation (activateLifetimeSeat)
+Self (seatId) or gift (seatToken). Expired gift link -> regenerate.
+L3 re-verify PROSPECT (no row). PROSPECT -> seat ACTIVATED, merchant row
+created LIFETIME (terminal), owner=sellerL1Id, acquisition recorded.
+Non-PROSPECT -> seat returns to POOLED (re-giftable, no refund); notify.
+
+7.5 Seat gift links (regenerateSeatLink)
+Buyer-only; sets GIFT_LINK_ACTIVE + token; 30-day expiry; value remains;
+regenerationCount increments.
+
+7.6 Self-renewal (reportSelfRenewal)
+Identity known; owner Y-rate RECURRING CONFIRMED immediately; no 2%; no
+acquisition; frozen=true if owner SUSPENDED; period extended. Honors
+plan.renewalPrice when present (NEW_SALES_ONLY lock).
+
+
+====================================================================
+8. FINANCIAL ENGINE (MONTH-END)
+====================================================================
+
+8.1 Schedule: month-end close runs on the 8th for the previous month (by
+then every prior-month code is USED or EXPIRED = CONFIRMED).
+
+8.2 Execution: closePreviousMonth fans out one idempotent processL1Month
+per L1 (skips if summary exists; stays within transaction limits).
+
+8.3 processL1Month logic
+- tenureMonth = calendar months since firstPaymentAt (payment month = M1).
+- activationCount = acquisitions in period.
+- gross = CONFIRMED (NEW_SALES + RECURRING + RENEWAL_INCENTIVE); PENDING excluded.
+- Jaminan: if tenureMonth <= 3 AND activations >= 8 AND gross < 3,000,000
+-> jaminan = 3,000,000 - gross.
+- Warmth (only after month 3; §8.4 months 1-3 = guarantee, no warmth):
+    * activations >= 5 -> WARM; held 0; release ALL heldBalance; AND reset
+      consecutiveSub5Months = 0.
+    * activations < 5  -> consecutiveSub5Months + 1; >=3 -> COLD (50% held)
+      else COOL (20% held).
+    * consecutiveSub5Months increments ONLY in warmth-eligible months
+      (tenureMonth >= 4); it does NOT accrue during months 1-3.
+- HeldRecord written; l1State.heldBalance updated.
+- L2 fee: if assignedL2Id AND tenureMonth >= 7: effective fee by decay;
+  l2Base = gross; if schemeSettings.l2.includeJaminan THEN
+  l2Base = gross + jaminan (same-period jaminan). l2Fee = l2Base x
+  effective%; insert l2EarningLine (l1Gross = l2Base); accumulate
+  monthlyL2Summaries. Default includeJaminan=false -> base = gross only
+  (excl Jaminan; §16.4/§16.7).
+- Insert monthlyL1Summary (settled=false).
+
+HELD RELEASE TIMING — DECISION ITEM DI-1 (B3). Locked §9.1: "Hit 5+ new
+customers in any month -> ALL held released in full." L1 Scheme §5: "As soon
+as you hit 5+ new customers in any month, ALL previously held money is
+released to you in full." Options: (a) immediate release when the month's 5th
+acquisition is recorded (in redeemSubscriptionCode/activateLifetimeSeat), or
+(b) release at month-end close (current implementation). PRODUCT DECISION
+REQUIRED. Default implemented: (b), pending DI-1. Held ACCRUAL (Cool/Cold)
+remains month-end; only RELEASE timing is in question.
+
+8.4 Frozen owner commissions
+Owner SUSPENDED at renewal/self-renewal -> owner RECURRING frozen=true.
+Liability report sums frozen CONFIRMED earnings. Admin resolves (§10.4).
+
+8.5 Daily maintenance crons
+expireUnusedCodes; expireSeatLinks; markChurnedMerchants; archiveOldLive
+(respects §6.2 guarantees); notifyExpiringCustomers (<=7d); notifyWindowEnded.
+
+
+====================================================================
+9. PAYOUT ENGINE
+====================================================================
+
+9.1 Schedules: L1 weekly default (Mon-Sun -> Wed), monthly override
+(1st-last -> 5th); L2 monthly (5th).
+
+9.2 Payable formula (§11.4): Payable = Gross + Jaminan - Held + ReleasedHeld
++/- Adjustment. Gross = CONFIRMED (new sales + recurring + renewal incentive).
+
+9.3 Weekly/monthly reconciliation — DECISION ITEM DI-2 (B4). Pay-as-you-go
+with monthly true-up kept: weekly pays the week's CONFIRMED gross; monthly
+accruals (held/jaminan/release) carry settled and are consumed once by the
+first payout after month-close. NOTE §11.4 implies held is deducted in the
+period earned; weekly true-up defers this. Consequence: month M's held is
+clawed back after close, so the L1 is temporarily overpaid during month M.
+Alternative: force monthly payout for held-affected L1s. PRODUCT DECISION
+REQUIRED (DI-2).
+
+9.4 Guards: ACTIVE only (SUSPENDED -> admin resolution; Edge 5/8); payout
+profile required (§11.7); idempotent per (user, period); zero-activity -> no
+line. Weekly keys use day granularity; cross-month weeks query both months.
+
+9.5 Mark paid (§23.3): requireAdmin; SCHEDULED -> PAID; notify; audit.
+
+9.6 L2 payout: Σ l2EarningLines.l2Fee for period +/- adjustments; profile required.
+
+
+====================================================================
+10. ADMIN REPORTS, OPERATIONS & MEMBER DATA QUERIES
+====================================================================
+
+10.1 Reports (§24, all requireAdmin, read summaries)
+- P/L (§24.2): Revenue - L1(new+recurring) - renewal incentive - L2 - Jaminan
+= Net profit. Revenue = PAID payment links in period.
+- Liability (§24.3): L1 unpaid (SCHEDULED payouts) + L1 held (heldBalance) +
+L1 frozen owner (frozen earnings) + L2 unpaid + unactivated seat obligation
+(count + estimated note line, open-ended).
+- Commission Ledger; Held; Jaminan; Payout; Product Sales (§24.5-24.9).
+- Acquisition (§24.7): acquisitions + renewal redemptions (informational).
+- Merchant Report (§24.10): owner, plan, status, first payment, tenure
+position, window remaining (36 - tenure), expiry, owner total earning (from
+merchantEarningHistory), last renewal method (CODE if sourceCodeId else SELF).
+
+10.2 Export: toCsv (CSV); PDF/print via PWA print CSS (§24.11).
+
+10.3 Adjustments (§22.4): createAdjustment (reason required, audit, affects payout).
+
+10.4 ADMIN MUTATION CATALOG (C3) — all requireAdmin, reason + auditLogEntries
+- manualHeldRelease(l1Id, amount|ALL, reason) — §9.5/§19.1/Edge 6.
+- reassignMerchantOwnership(merchantId, newOwnerL1Id, reason) — §14.1/§19.1.
+- resolveFrozenOwnerCommission(merchantId, resolution REASSIGN|
+SETTLE_TO_COMPANY, newOwnerL1Id?, reason) — §14.6/§19.1. REASSIGN moves
+frozen earnings + ownership; SETTLE_TO_COMPANY sets settledToCompany=true.
+DISTINCT from reassignMerchantOwnership per §19.1.
+- processManualRefundException(paymentLinkId|earningLineId, reason) —
+§3.6/§19.1/Edge 31 (+ Edge 17 chargeback as admin adjustment). Inserts
+reversing ADJUSTMENT / marks refunded.
+- reissueExpiredCode(codeId) — §5.5/§3.6. Only EXPIRED; replacement UNUSED
+expires 7d from reissue; no new commission; one active replacement per
+original; acquisition counts when replacement USED by new merchant.
+- editPayoutProfile(userId, bankName, accountNumber, accountName) — §19.1/§3.5.
+- updateSchemeSettings(...) — §21 (see 10.5).
+- (Registration/user: adminCreateUser, approveRegistration, rejectRegistration,
+setUserStatus, assignL1ToL2 — §5.4.)
+
+10.5 SCHEME SETTINGS (B6): schemeSettings doc + updateSchemeSettings
+(requireAdmin, audit old/new) covering ALL §21.1-21.10 (guarantee, warmth,
+L1 target, L2, recruitment, payout, money display, renewalIncentivePercent=2,
+ownershipWindowMonths=36, direct-purchase toggles, seatLinkExpiryDays=30).
+Edge 18: changes apply next period unless an effective date is specified.
+
+10.6 L1 PROJECTION (B1): getL1Projection(l1Id) per §13. horizon =
+min(remaining 36-mo window, plan LTV=3y); Monthly->monthly, Yearly->yearly,
+Lifetime->none; follows Y1/Y2/Y3/Y4+ by payment date; 0 after window; EXCLUDES
+future new sales and renewal incentive. Active recurring only, no churn.
+
+10.7 L2 RECRUITMENT (B2): getL2RecruitmentProgress(l2Id, period) per §17.
+Counts invited L1s (recruitmentSource=L2_INVITE, recruitedByL2Id=l2Id, status
+ACTIVE, approvedAt in period); target = schemeSettings.recruitment.target
+(default 3; §21.5 event APPROVED_ACTIVE, reset CALENDAR_MONTH). §17.3 credit
+stays with original recruiter (recruitedByL2Id), not current assignedL2Id.
+Returns {count, target, invitees[]}.
+
+10.8 MY CUSTOMERS / TEAM CUSTOMERS (B5), with data-scoping
+- L1 (§38.1): getMyCustomersSummary(l1Id) -> cards {active, expiring<=7d,
+pausedChurned, lifetime}; getMyCustomersList(l1Id) -> merchants
+ownerL1Id=l1Id (store, plan, status, expiry, tenure position, my earned,
+last renewal method), SORTED nearest expiry first; getMyCustomerDetail
+(l1Id, merchantId) -> profile, payment history w/ my commission (from
+merchantEarningHistory), renewal history, window status.
+- L2 (§38.2): getTeamCustomers(l2Id) -> aggregate per L1 where
+assignedL2Id=l2Id; READ-ONLY drill-down; no ownership actions.
+- Admin (§38.3): all merchants + reassign/settle actions (§10.4).
+
+10.9 AUDIT LOG QUERY: queryAuditLog(filters) — requireAdmin (§3.6/§32).
+
+
+====================================================================
+11. PRICING SCHEDULER
+====================================================================
+
+11.1 schedulePriceChange (requireAdmin): future effective date required; one
+pending change per plan (supersede); audit old/new/date/mode/admin.
+
+11.2 applyScheduledPriceChanges (daily cron):
+- ALL_USERS: plan.price = newPrice (renewals included). Fully supported.
+- NEW_SALES_ONLY: plan.price = newPrice AND plan.renewalPrice = oldPrice.
+Self-renewal honors renewalPrice.
+KNOWN LIMITATION (DI-5): L1-created renewal links fix amount at creation and
+merchant identity is unknown until redemption, so per-merchant price locking
+there requires binding identity before payment (flow change).
+
+11.3 Commission is %-based: recalculates automatically off the new price at
+payment time (§20.3).
+
+
+====================================================================
+12. CRON SCHEDULE (UTC)
+====================================================================
+
+| Job | Schedule |
+| apply price changes | daily 00:05 |
+| mark churned merchants | daily 00:15 |
+| expire 7-day codes | daily 00:30 |
+| expire 30-day seat links | daily 00:45 |
+| notify expiring customers (<=7d) | daily 01:00 |
+| notify window ended | daily 01:15 |
+| archive live data >90 days (respects §6.2) | daily (off-peak) |
+| month-end close | 8th, 01:00 |
+| weekly L1 payouts | Wednesday 02:00 |
+| monthly L1 payouts | 5th, 02:00 |
+| L2 payouts | 5th, 03:00 |
+
+
+====================================================================
+13. SELLMORE SDK API CONTRACT
+====================================================================
+
+Identity key: sellMoreStoreId (stable; required before lifetime payment;
+no Merchant record = PROSPECT). All SDK endpoints: requireApiKey.
+| Event | Behavior |
+| queryMerchantState | returns state (PROSPECT default) + expiry; drives SellMore UI |
+| pathLockCheck | pre-payment gate; PROSPECT only; creates NO PROSPECT row (C1); blocks + admin-notifies otherwise |
+| redeemSubscriptionCode | attribution resolution per 7.3 |
+| reportSelfRenewal | owner Y, no 2%, CONFIRMED immediately |
+| activateLifetimeSeat | L3 PROSPECT re-verify; activate or return to pool |
+| regenerateSeatLink | 30-day giftable link; value remains |
+
+Webhook contract: gateway echoes paymentLinkId (reference/metadata);
+idempotencyKey = gateway payment id; verify gateway signature; return 200.
+Edge guarantees: paid-but-blocked prevented; churned return renewal-only;
+unknown id = PROSPECT; seat re-gift no refund; direct-purchase toggles off by
+default; no-SellMore -> install prompt.
+
+
+====================================================================
+14. NOTIFICATIONS (B7)
+====================================================================
+
+Every §28 notification with trigger + mechanism. NO customer-renewed
+notification (retained).
+
+L1 (§28.2): link paid (processPayment PAID, inline); code generated
+(processPayment, inline); code used (redeemSubscriptionCode USED, inline);
+code expired (expireUnusedCodes, cron); payout scheduled (payout gen cron,
+cron); payout paid (markPayoutPaid, inline); held released (release per DI-1,
+releasedAmount>0, cron/inline); Jaminan achieved (month-end, jaminan>0, cron);
+renewal incentive earned (redeemSubscriptionCode RENEWAL seller 2%, inline);
+customer expiring <=7d (notifyExpiringCustomers §38.4, cron); customer churned
+(markChurnedMerchants, cron); customer window ended (notifyWindowEnded §38.4,
+cron); announcement (published, inline).
+
+L2 (§28.3): invited L1 registered (registerViaInvite, inline); L1 first payment
+(processPayment when L1.firstPaymentAt first set, inline); L2 payout scheduled
+(runL2Payouts, cron); L2 payout paid (markPayoutPaid, inline); announcement
+(published, inline).
+
+Admin (§28.4): registration pending (registerPublic, inline); payment success
+(processPayment PAID, inline); code expired (expireUnusedCodes, cron); payout
+upcoming/paid (payout cron / markPayoutPaid); pricing scheduled
+(schedulePriceChange, inline); webhook failed (webhook verify/processing error,
+inline); lifetime path-lock block attempt (pathLockCheck block, inline); seat
+link expired (expireSeatLinks, cron); owner commission frozen (frozen earning
+created, inline).
+
+
+====================================================================
+15. NON-FUNCTIONAL REQUIREMENTS
+====================================================================
+
+15.1 Scale/cost: single Convex project serves year-2 load; paid plan before
+real money. 15.2 Consistency: all money mutations transactional + idempotent.
+15.3 Observability: audit log for all admin actions; webhook failures logged +
+admin notified. 15.4 Money display: raw integers; format applied per §18.3.
+15.5 Timezone: cron UTC; periods Asia/Jakarta for production. 15.6 Security:
+OTP rate-limiting; rotate SDK API key; env secrets; session-derived identity.
+
+
+====================================================================
+16. OPEN ITEMS / TODOs
+====================================================================
+
+1. Verify @convex-dev/auth OTP option names + user-table binding; add
+email-merge claimProfile if needed.
+2. SDK API-key middleware (shared helper across device endpoints).
+3. Code uniqueness check in generateCode.
+4. PDF export (print stylesheet) + report scheduling.
+5. Production Convex plan + backup/export strategy.
+(NEW_SALES_ONLY price-lock gap -> DI-5; data-scoping now §10.8; churn
+notifications now §14/§12; map/Discord/money now §18.)
+
+
+====================================================================
+17. BUSINESS RULES QUICK REFERENCE
+====================================================================
+
+17.1 Pricing & commission: Monthly 70.000 | Yearly 600.000 | Lifetime Single
+1.500.000 (33.33% = 500.000) | Lifetime Duo 2.000.000 (35% = 700.000).
+Y1 50% (0-12m) | Y2 40% (12-24) | Y3 30% (24-36) | Y4+ 0% (36+). Window = 36
+months from merchant FIRST payment; rate by PAYMENT date. Renewal incentive
+2% to seller; never first-time/lifetime/self-renewal.
+17.2 Jaminan (first 3 months): activations >= 8 AND gross < 3.000.000 ->
+top-up to 3.000.000.
+17.3 Warmth (after month 3; first-time activations): Warm 5+ -> 100%/0 held |
+Cool <5 -> 80%/20 held | Cold 3x<5 -> 50%/50 held. Hit 5+ -> ALL held released.
+Held NEVER forfeited.
+17.4 L1 targets: M1-3:10 | M4-6:12 | M7-9:15 | M10-11:18 | M12+:20.
+17.5 L2: 10% base; starts M7; M7-18 10% | M19-30 6.6% | M31-42 3.3% | M43+ 0.
+Base = L1 gross (incl held + renewal incentive), excl Jaminan (or incl Jaminan
+if includeJaminan enabled).
+17.6 Lifecycles: link 24h | code 7d | seat link 30d (value remains). Single
+lifetime auto-activates at payment. Duo = pool, giftable. Blocked seat returns
+to pool; no refund. Ownerless stays ownerless.
+17.7 Payouts: L1 weekly Mon-Sun -> Wed (default); monthly 1st-last -> 5th.
+L2 -> 5th. Payable = Gross + Jaminan - Held + ReleasedHeld +/- Adjustment.
+17.8 Roles & auth: Roles L1/L2/ADMIN. Statuses PENDING/ACTIVE/SUSPENDED.
+Login email OTP only. Registration admin create / public / L2 invite. Admin
+gates all reports & admin mutations; identity from session.
+17.9 PROSPECT = absence of a merchant row (§39.2); stored statuses only
+SUBSCRIBED|CHURNED|LIFETIME.
+
+
+====================================================================
+18. INTEGRATIONS & DISPLAY CONTRACTS (B8)
+====================================================================
+
+18.1 Map (§26): MVP admin-only. getAdminMap (requireAdmin) returns merchant
+geo from Applocator (GPS/IP) — green active / grey inactive, Open Maps overlay
+(§26.2). L1/L2 disabled in MVP; filters disabled until Applocator supports
+(§26.1). Future: L1 own merchants; L2 own L1+merchants; Admin drill-down (§26.3).
+
+18.2 Discord (§27): MVP invite button + Admin/L2 announcement + webhook; no
+full chat (§27.1). discordSettings (webhookUrl, admin config, §27.3).
+publishAnnouncement(title, message, audience, sendToDiscord) (§27.2) — creates
+announcement; if sendToDiscord, POST to webhook. testDiscordWebhook (§27.3).
+On webhook fail: announcement still published in-app; failure shown/logged;
+admin notified (§27.3, Edge 19).
+
+18.3 Money Display (§29): no symbol, no code, value only, locale separator
+(§29.1); modes Rounded (default) | Decimal (§29.2); setting
+schemeSettings.moneyDisplay (§21.7, §29.4). Backend stores raw integer amounts;
+formatMoney applies the setting at display.
+
+
+====================================================================
+TRACEABILITY MATRIX (locked § -> backend) — no OPEN material items
+====================================================================
+
+§1.1 Roles -> §5 | §1.2 Platform -> frontend (PWA) | §1.3 Core loop -> §7
+§2 Pricing -> §6 productPlans, §17 | §2.1 examples -> §17, §7/§8
+§2.2 Lifetime seats -> §6 lifetimeSeats, §7.2/§7.4, §13 | §2.3 Renewal inc -> §7.3, §14
+§3.1 Login -> §5.1 | §3.2 Registration -> §5.3 | §3.3 Statuses -> §6, §5.2
+§3.4 User fields -> §6 users | §3.5 Payout profile -> §6, §10.4 editPayoutProfile
+§3.6 Role perms -> §5.2/§5.5, §10.4, §10.9
+§4.1-4.4 Payment link -> §7.1, §6 paymentLinks | §4.5 Deep link -> §7.2, §13
+§4.6 Renewal flow -> §7.3 | §4.7 Self-renewal -> §7.6
+§5.1-5.4 Code lifecycle -> §7.3, §6 subscriptionCodes, §12 | §5.5 Reissue -> §10.4
+§6 Earning vs acq -> §6 acquisitions, §7.3, §8 | §6.1 Cross-month -> P7, §7.3
+§6.2 Expired unused -> §12 expireUnusedCodes, P3 | §6.3 Pending -> P2/P8, §7.3
+§7 Jaminan -> §8.3, §10.5, §14 | §8 Warmth -> §8.3, §10.5
+§9 Held -> §8.3, §10.4 manualHeldRelease, DI-1
+§10 Tenure & target -> §8.3, §10.5 l1Target, acquisitions
+§11 L1 payout -> §9 | §12 Earning display -> §10.x, VT-1 (§12.3)
+§13 Projection -> §10.6 (B1) | §14 Ownership & renewal -> §7.3, §8.4, §10.4
+§15 Path separation -> §7.2/§7.4, §13 pathLockCheck (C1)
+§16 L2 commission -> §8.3, §6 l2EarningLines, §17 | §17 Recruitment -> §10.7 (B2)
+§18 L2 payout -> §9.6 | §19 Admin user mgmt -> §5.4, §10.4 | §20 Pricing -> §11
+§21 Scheme settings -> §10.5 (B6), §6 schemeSettings
+§22 Admin commissions -> §10.1, §10.3 | §23 Payout processing -> §9.5
+§24 Reports -> §10.1 | §25 Accounting -> §10.1 liability, §8.4, §6
+§26 Map -> §18.1 | §27 Discord -> §18.2 | §28 Notifications -> §14 (B7)
+§29 Money display -> §18.3 | §30 Enums -> §6 | §31 Key separations -> §3
+§32 Audit log -> §6 auditLogEntries, §10.9, all admin mutations
+§33 Title/helper -> frontend display (backend supplies §18.3 money + §34 copy)
+§34 Default config -> §10.5 schemeSettings defaults | §35 Edge cases -> §16 recheck
+§36 Acceptance -> §5.7 (A-1..A-5), §6.2 VT-1..VT-4; remaining -> QA harness
+§37 Data model -> §6 | §38 My Customers -> §10.8 (B5), §14 churn-prevention
+§39 SDK -> §13 (C1) | §40 Doc status -> meta
+
+§35 Edge recheck (directed): #6 -> manualHeldRelease | #17 -> admin adjustment /
+processManualRefundException (not hard no-refund) | #18 -> updateSchemeSettings
+next-period-unless-effective-date | #31 -> processManualRefundException. All §35
+items handled (others mapped to their flows).
+
+
+====================================================================
+DECISION ITEMS (owner decisions required)
+====================================================================
+
+DI-1 Held release timing (B3). §9.1: "Hit 5+ new customers in any month -> ALL
+held released in full." L1 Scheme §5: "As soon as you hit 5+ new customers in
+any month, ALL previously held money is released to you in full." Choose:
+(a) immediate on the month's 5th acquisition, or (b) month-end close (current).
+Default until decided: (b).
+
+DI-2 Weekly payout vs monthly warmth (B4). §11.4: "Gross + Jaminan - Held +
+Released held +/- Adjustment = Payable" (implies held deducted in period
+earned); §11.1/§11.2 weekly default. Choose: keep weekly pay-as-you-go true-up
+(consequence: month M held clawed back after close; L1 temporarily overpaid
+during M) OR force monthly payout for held-affected L1s.
+
+DI-3 Business targets (H1). "1,000,000 merchants / 2 years" and "80/20 split"
+are NOT in the locked spec; they are [ASSUMPTION — confirm with owner], and §1.3
+load profile depends on them. Confirm or replace.
+
+DI-4 Lifetime buyer identity before activation (C1). §37 LifetimeSeat.
+buyerMerchantId presumes a buyer row, but §39.2 "no Merchant record = PROSPECT"
+and §37 Merchant has no PROSPECT status. Resolution implemented:
+lifetimeSeats.buyerSellMoreStoreId [EXTENSION] carries identity until
+activation creates the row; buyerMerchantId set at activation. Confirm acceptable.
+
+DI-5 NEW_SALES_ONLY price lock for L1 renewal links (§20.2/Edge 13). Edge 13:
+"Renewal NEW_SALES_ONLY: old price kept." L1 renewal links fix amount at
+creation; identity unknown until redemption. Choose: bind identity before
+payment (flow change) OR accept limitation (applies cleanly only to
+self-renewal via renewalPrice).
+
+DI-6 Commission Ledger historical retention (FIX-4). §24.4 Commission Ledger
+reads line-level earningLines; P5 [EXTENSION] archives earningLines after 90
+days. Line-level ledger detail is guaranteed only for the live 90-day window;
+beyond 90d, per-L1 commission is served from monthlyL1Summaries + acquisitions
+(aggregate) and merchantEarningHistory (per-merchant). Choose: retain
+earningLines long-term (full line-level historical ledger) OR accept
+aggregate-only history beyond 90d. Default until decided: aggregate-only.
+
+MD-1 Mobile "62..." without "+" -> auto-prepend "+" (recommended) vs reject.
+MD-2 Mobile non-+62 international -> accept as-is (default) vs reject (ID-only).
+
+====================================================================
+END OF BACKEND TECHNICAL SPECIFICATION (v1.3.1)
+====================================================================

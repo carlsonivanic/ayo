@@ -8,7 +8,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "seed": "convex run seed:run"
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "seed": "convex run seed:demo"
   },
   "dependencies": {
     "@convex-dev/auth": "^0.0.87",

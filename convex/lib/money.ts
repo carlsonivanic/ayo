@@ -1,15 +1,18 @@
-// Money helpers. All IDR amounts are BigInt (v.int64()) — never floats.
+// Money is integer rupiah end to end (§29 / §15.4).
+//
+// Percentage results are rounded half-up to the nearest 100 IDR. This is what
+// reproduces every figure in the spec, including the Lifetime Single case where
+// 1.500.000 x 33,33% is quoted as 500.000 (exact math gives 499.950).
 
-/** Parse a systemParameters string value into a BigInt IDR amount. */
-export function toIDR(value: string | number | bigint): bigint {
-  if (typeof value === "bigint") return value;
-  if (typeof value === "number") return BigInt(Math.round(value));
-  // strip "Rp", thousands separators and whitespace
-  const cleaned = value.replace(/[^0-9-]/g, "");
-  return cleaned ? BigInt(cleaned) : 0n;
+export function round100(value: number): number {
+  return Math.round(value / 100) * 100;
 }
 
-/** percentage of an IDR amount, rounded down, staying in BigInt. */
-export function pctOf(amount: bigint, pct: number): bigint {
-  return (amount * BigInt(Math.round(pct * 100))) / 10000n;
+/** `percent` is expressed in percent units (50 = 50%). */
+export function pctOf(amount: number, percent: number): number {
+  return round100((amount * percent) / 100);
+}
+
+export function clampNonNegative(value: number): number {
+  return value < 0 ? 0 : value;
 }

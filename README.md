@@ -1,59 +1,125 @@
-# AYO — Admin Console (Phase 1 MVP)
-##v0.0.3
+# AYO
 
-Commercial backend + admin dashboard for the Sell More POS (Selmo). Convex backend
-+ Next.js (Pages Router) admin console. See `INIT_PROMPT.md` and `ayo_prd.html`.
+Sales and coordination app for SellMore POS. L1 field agents sell subscriptions
+and lifetime seats, L2 coordinators earn an override on their L1s, admins run
+pricing, payouts and reports.
+
+Specification: `GUIDES/AYO Consolidated Reference.txt` (functional, v2.0) and
+`GUIDES/AYO Backend Stack 1.3.1.txt` (backend). Section references throughout the
+code point at those two files.
 
 ## Stack
-- **Backend/DB:** Convex (`convex/`) — schema, queries, mutations, HTTP routes.
-- **Auth:** `@convex-dev/auth` Password provider (email + password ≥16 chars).
-- **Frontend:** Next.js 15 Pages Router + Tailwind + shadcn-style UI (`src/`).
-- Money is `v.int64()` (BigInt IDR). `licenses.agentId` is immutable after first
-  activation (enforced in `convex/licenses.ts`).
 
-## First-time setup
-
-```bash
-npm install
-npx convex dev            # provisions a local deployment, writes .env.local
-```
-
-Provision Convex Auth keys (one-time, per deployment) — generate an RS256 keypair
-and set `JWT_PRIVATE_KEY`, `JWKS`, and `SITE_URL` (http://localhost:3000) via
-`npx convex env set`. (Already done for the current local deployment.)
-
-Seed parameters + demo data:
-
-```bash
-npx convex run seed:run
-```
+- Convex — database, functions, crons, HTTP endpoints
+- Convex Auth — email OTP, delivered through Resend
+- Next.js (pages router) + Tailwind — mobile-first PWA for all three roles
 
 ## Run
 
 ```bash
-npx convex dev            # terminal 1 — backend (keep running)
-npm run dev               # terminal 2 — http://localhost:3000
+npm install
+npx convex dev          # backend, watches convex/
+npm run dev             # frontend on :3000
 ```
 
-## Create the first admin
-
-1. Open `/login`, click **Daftar**, create an account (password ≥16 chars).
-2. You'll see "Akses menunggu persetujuan" — grant yourself a role:
+First deployment:
 
 ```bash
-npx convex run seed:grantAdmin '{"email":"you@ayo.id","role":"super_admin","name":"You"}'
+npx convex run seed:bootstrap '{"email":"you@example.com","name":"Your Name"}'
+npx convex run seed:demo      # optional demo agents, merchants and history
 ```
 
-Roles: `super_admin` (all + Parameter screen), `ops_admin` (agents + generate codes),
-`finance_admin` (commissions + revoke codes).
+`seed:bootstrap` creates the plans, the default scheme settings and the first
+admin. Sign in at `/masuk` with that email.
 
-## Screens
-- `/` Ringkasan — live KPIs.
-- `/agents` User Management — monitoring table, approval queue, invite new users, status override.
-- `/codes` Kode Langganan — generate (incl. Lifetime Duo pair) + revoke.
-- `/commissions` Komisi — read-only L1 payout summary.
-- `/settings` Parameter — system parameter registry (super_admin).
+## Environment
 
-## Not in Phase 1 (per INIT_PROMPT)
-L2/L3 portal & override calc, messaging, retail gift-card batches, the POS-facing
-`/api/v1/*` engine (routes scaffolded in `convex/http.ts`, return 501).
+Set on the Convex deployment (`npx convex env set NAME value`):
+
+| Variable | Purpose |
+|---|---|
+| `RESEND_API_KEY` | OTP email delivery. Without it the code is logged and readable via `AYO_DEV_OTP_ECHO`. |
+| `OTP_EMAIL_FROM` | Sender for OTP mail. |
+| `AYO_DEV_OTP_ECHO` | `true` shows the OTP on the login screen. Development only. |
+| `AYO_PAYMENT_MODE` | `SIMULATED` (default) enables the test checkout button. Set to the gateway name once the webhook is live. |
+| `PAYMENT_WEBHOOK_SECRET` | HMAC-SHA256 secret for `/webhooks/payment`. |
+| `AYO_SDK_API_KEY` | Shared secret for the SellMore device endpoints. Falls back to `POS_CLIENT_KEY`. |
+| `LICENSE_PRIVATE_KEY_JWK` | ECDSA P-256 key that signs the offline licence token the POS verifies. |
+
+Frontend: `NEXT_PUBLIC_CONVEX_URL`, and optionally
+`NEXT_PUBLIC_SELLMORE_INSTALL_URL` for the lifetime fallback page.
+
+## SellMore integration
+
+The existing POS contract is unchanged — a short `SM-XXXX-XXXX-XXXXX` code is
+redeemed online and answered with a signed `SM1.<payload>.<signature>` token that
+the POS verifies offline.
+
+```
+POST /api/v1/activate   { code, deviceId, merchantName?, merchantLocation? }
+POST /api/v1/renew      same shape
+POST /api/v1/validate   { deviceId }
+```
+
+The full SDK surface (§39.3) lives alongside it:
+
+```
+POST /sdk/merchant-state    { storeId }
+POST /sdk/path-lock         { storeId }              pre-payment lifetime gate
+POST /sdk/redeem            { code, storeId }
+POST /sdk/self-renew        { storeId, planKey }
+POST /sdk/lifetime/pay      { token, storeId }
+POST /sdk/seat/activate     { seatToken, storeId }
+POST /sdk/seat/regenerate   { storeId }
+POST /sdk/seats             { storeId }
+```
+
+All of them require `X-AYO-API-KEY` (or the legacy `X-Sellmore-Client`) when a
+key is configured. `deviceId` and `storeId` are the same identifier.
+
+## Money and periods
+
+Amounts are integer rupiah everywhere; the display format (rounded or decimal,
+no currency symbol) is an admin setting applied in the client. Percentages are
+rounded to the nearest 100 IDR, which is what reproduces every figure quoted in
+the spec — including Lifetime Single, where 33,33% of 1.500.000 is stated as
+500.000.
+
+Periods are `YYYY-MM` in Asia/Jakarta. Crons run in UTC, timed to land in the
+early Jakarta morning.
+
+## Scheduled work
+
+| Job | When |
+|---|---|
+| Apply scheduled price changes | daily |
+| Mark churned merchants, expire links, codes, seat links | daily |
+| Churn notifications (7 days out, window ended) | daily |
+| Month-end close | 8th, for the previous month |
+| L1 weekly payouts | Wednesday |
+| L1 monthly and L2 payouts | 5th |
+
+Admins can re-run the month-end close and the payout runs by hand from
+`/admin/tutup-bulan` and `/admin/payout`; both are idempotent per period.
+
+## Tests
+
+```bash
+npm test        # commission rules and end-to-end flows
+npm run typecheck
+```
+
+`convex/rules.test.ts` checks the pure rules against every worked example in the
+spec. `convex/flows.test.ts` drives the real mutations: sell, redeem, renew,
+path-lock, seats, month-end and payout.
+
+## Decisions taken
+
+The backend spec leaves six items open. Implemented defaults:
+
+- **DI-1** held is released at month-end close, not the moment the fifth customer lands.
+- **DI-2** weekly payouts pay as they go; monthly accruals (jaminan, held, release) are trued up once by the first run after the close.
+- **DI-5** the `NEW_SALES_ONLY` price lock applies to self-renewal, where identity is known before payment.
+- **DI-6** line-level commission history is kept; nothing is archived yet.
+- **MD-1** a mobile number starting `62` gets a `+` prepended.
+- **MD-2** non-Indonesian numbers are accepted as plausible E.164.

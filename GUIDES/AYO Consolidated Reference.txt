@@ -1,0 +1,635 @@
+====================================================================
+AYO — CONSOLIDATED REFERENCE (MASTER SPEC + COMMISSION SCHEMES)
+Merged: AYO Functional Spec V.2 + L1 Commission Scheme + L2 Commission Scheme
+====================================================================
+
+
+====================================================================
+PART 1 — AYO FUNCTIONAL SPECIFICATION (Master Document v2.0)
+====================================================================
+
+# AYO — Sales & Coordination App
+
+## 1. PRODUCT OVERVIEW
+
+AYO is a sales and coordination application for the SellMore POS product.
+
+### 1.1 Roles
+| Role  | Description |
+|-------|-------------|
+| L1    | Field agent. Acquires merchants. Earns commission. |
+| L2    | Sales coordinator. Recruits, trains, guides L1. Earns override. |
+| Admin | Full control. Users, pricing, payout, reports, configuration. |
+
+### 1.2 Platform
+- PWA / mobile web first.
+- Responsive for tablet and desktop.
+- L1, L2, Admin all access via same PWA with role-based routing.
+- SellMore app embeds the AYO SDK for merchant identity, path-lock enforcement, self-renewal, and lifetime activation. Codes and seats reside on the AYO server.
+
+### 1.3 Core Loop
+Subscription path:
+L1 selects SellMore subscription plan.
+AYO creates single-use payment link.
+Merchant pays via QRIS or card.
+Code generated after payment success (earning PENDING).
+L1 sends code to merchant via WhatsApp.
+Merchant enters code in SellMore (AYO SDK).
+Attribution resolved (earning CONFIRMED).
+Payout calculated and paid.
+L2 earns override from eligible L1.
+
+Lifetime path:
+L1 selects SellMore lifetime plan.
+AYO creates deep link carrying L1 attribution.
+Buyer taps link -> SellMore app opens.
+Path-lock check (must be PROSPECT, before payment).
+Buyer pays inside SellMore -> full commission to L1.
+Seat pool created (1 seat Single / 2 seats Duo).
+Buyer activates or gifts seats.
+
+## 2. PRODUCT PRICING & COMMISSION
+
+Source: L1 Commission Scheme.
+
+| Plan             | Price          | L1 Commission |
+|------------------|----------------|---------------|
+| Monthly          | 70.000/month   | Y1: 50% · Y2: 40% · Y3: 30% · Y4+: 0% |
+| Yearly           | 600.000/year   | Y1: 50% · Y2: 40% · Y3: 30% · Y4+: 0% |
+| Lifetime (1 user)| 1.500.000      | One-time 33.33% = 500.000 |
+| Lifetime Duo     | 2.000.000      | One-time 35% = 700.000 |
+
+Commission is percentage-based and follows price changes automatically.
+
+### 2.1 Commission Calculation Examples
+| Case                    | Calculation        | Result  |
+|-------------------------|--------------------|---------|
+| Monthly Y1              | 70.000 × 50%       | 35.000  |
+| Monthly Y2              | 70.000 × 40%       | 28.000  |
+| Monthly Y3              | 70.000 × 30%       | 21.000  |
+| Monthly Y4+             | —                  | 0       |
+| Yearly Y1               | 600.000 × 50%      | 300.000 |
+| Yearly Y2               | 600.000 × 40%      | 240.000 |
+| Yearly Y3               | 600.000 × 30%      | 180.000 |
+| Yearly Y4+              | —                  | 0       |
+| Lifetime                | 1.500.000 × 33.33% | 500.000 |
+| Lifetime Duo            | 2.000.000 × 35%    | 700.000 |
+| Monthly renewal incentive | 70.000 × 2%      | 1.400   |
+| Yearly renewal incentive  | 600.000 × 2%     | 12.000  |
+
+### 2.2 Lifetime Products — Unified Seats
+- Lifetime products use seats, not codes. No code box.
+- Single Lifetime = 1 seat. Lifetime Duo = 2 seats. One unified mechanism.
+- Full one-time commission (500.000 / 700.000) recognized at successful payment to the selling L1.
+- Each seat activated by a PROSPECT = 1 acquisition. Duo both activated = 2 acquisitions.
+- Buyer receives a seat pool. Default suggestion: "Use 1 for yourself." Buyer may assign/gift any seat, including all of them.
+- Single Lifetime: seat auto-assigned to buyer at payment (seamless).
+- Seat activates via tap-to-activate link + path-lock check (PROSPECT only).
+- Seat blocked for a non-prospect -> returns to buyer's pool, re-giftable. No refund.
+- Seat link expires in 30 days. Seat value remains; link regenerable.
+
+### 2.3 Renewal Incentive
+- One-time 2% of a subscription renewal payment, paid to the L1 who generated the renewal code.
+- Applies only to Monthly/Yearly renewals where the redeeming merchant already existed before this payment.
+- Never applies to first-time acquisition, Lifetime, or Lifetime Duo.
+- Not paid on self-renewal.
+- Enters the seller's gross commission (subject to Warm/Cool hold, L2 fee base, Jaminan calculation).
+
+## 3. AUTHENTICATION & USER MANAGEMENT
+
+### 3.1 Login
+- Email OTP only. No password.
+- User enters email -> receives 6-digit OTP -> verifies -> logged in.
+- Role determines redirect destination.
+
+### 3.2 Registration
+Three methods, all active:
+| Method            | Flow |
+|-------------------|------|
+| Admin creates     | Admin creates L1 or L2 directly. Assigns L1 to L2. |
+| Public registration | Anyone registers. Admin approves. Assigns role and L2. |
+| L2 invite         | L2 sends invite link. L1 registers via link. Auto-active under inviting L2. |
+
+### 3.3 User Statuses
+PENDING / ACTIVE / SUSPENDED
+
+### 3.4 User Fields
+id, name, email, role (L1|L2|ADMIN), status, registeredAt, approvedAt,
+firstPaymentAt, tenureMonth, assignedL2Id, recruitedByL2Id,
+recruitmentSource (L2_INVITE|PUBLIC|ADMIN_CREATE),
+payoutProfile { bankName, accountNumber, accountName }, payoutFrequency
+
+### 3.5 Payout Profile
+Required before first payout: Bank name, Account number, Account name.
+
+### 3.6 Role Permissions
+L1 can: create payment links; view own codes/earnings/payout/performance; view My Customers (own merchants); complete payout profile; view notifications; open Discord invite.
+L1 cannot: see other L1 data; access admin functions; change pricing/commission; access map in MVP.
+L2 can: view all L1 under coordination; view L1 performance relevant to L2 commission; view Team Customers (read-only); invite L1; view own L2 earnings/payout; create team announcement.
+L2 cannot: change pricing/scheme; process payout; access admin functions; access map in MVP; reassign merchant ownership.
+Admin can: manage all users; approve/reject registration; assign/reassign L1 to L2; suspend/reactivate; view all sales/codes/commissions; reissue expired code; process payout; view/export reports; change pricing & scheme; view admin map; create announcements; configure Discord webhook; view audit log; manage merchant ownership (reassign, resolve frozen owner commission); process manual refund exceptions (reason + audit).
+
+## 4. SELL FLOW
+
+### 4.1 Payment Link (Subscription)
+- L1 selects subscription plan.
+- AYO creates single-use payment link.
+- Link expires after 24 hours.
+- No cancel action. Expired/failed links require new link.
+- L1 does not enter merchant data.
+
+### 4.2 Payment Link Statuses
+SHARED / PAID / FAILED / EXPIRED
+
+### 4.3 Subscription Payment Flow
+L1 selects plan. AYO creates link (SHARED).
+L1 sends link via WhatsApp. Merchant pays via QRIS/card.
+Payment success -> PAID. Code generated (UNUSED). Earning PENDING to seller.
+L1 notified. L1 sends code via WhatsApp (code only).
+Merchant enters code in SellMore (AYO SDK). SDK reports redemption + identity.
+Attribution resolved -> earning CONFIRMED. Code -> USED. Redemption type recorded. Store name updated.
+
+### 4.4 Payment Link Fields
+id, l1Id, planId, amount, status, createdAt, expiresAt, paidAt, failedAt, codeIds[]
+
+### 4.5 Lifetime Deep Link
+- L1 selects lifetime plan. AYO creates deep link carrying L1 attribution.
+- Link sent via WhatsApp as clickable URL.
+- Link routes into SellMore app (SDK context). SellMore must be registered as link handler (universal link / app link / shared target).
+- Identity + path-lock check happen inside SellMore BEFORE payment.
+- Payment happens inside SellMore via AYO SDK.
+- Fallback: if SellMore not installed, web page prompts install/open SellMore. Plain web browser payment NOT permitted for lifetime.
+
+### 4.6 Subscription Renewal Flow
+L1 creates renewal link (or merchant self-renews).
+Merchant pays -> code generated (if via link) -> earning PENDING to seller.
+Merchant enters code in SellMore renewal box. SDK reports redemption + identity.
+AYO resolves: New merchant -> NEW_SALES to seller + acquisition.
+Existing merchant -> RECURRING to owner + 2% RENEWAL_INCENTIVE to seller.
+Earning CONFIRMED.
+
+### 4.7 Self-Renewal Flow
+Merchant taps self-renew in SellMore -> pays via AYO SDK.
+SDK reports (identity known) -> RECURRING to owner CONFIRMED immediately. No 2%.
+
+## 5. CODE LIFECYCLE
+
+### 5.1 Scope
+Codes apply to subscription products ONLY. Lifetime uses seat links (no codes).
+
+### 5.2 Code Statuses
+UNUSED / USED / EXPIRED
+
+### 5.3 Code Rules
+- Code generated only after payment success.
+- UNUSED code expires after 7 days.
+- USED code remains USED. Subscription status separate.
+- Code USED updates store name from SellMore/Applocator.
+- Code USED records redemption type: FIRST_ACTIVATION or RENEWAL.
+
+### 5.4 Code Fields
+id, code, paymentLinkId, l1Id, planId, status, generatedAt, expiresAt, usedAt,
+storeName, originalCodeId, replacementCodeId, redemptionType
+
+### 5.5 Code Reissue
+- Only EXPIRED code reissued by Admin. Replacement UNUSED, expires 7 days from reissue.
+- No new commission. One active replacement per original. Acquisition counts when replacement USED by new merchant.
+
+## 6. EARNING vs ACQUISITION
+
+| Event                  | Trigger |
+|------------------------|---------|
+| L1 earning             | Successful payment (PENDING for code-based; CONFIRMED when resolved) |
+| Acquisition target     | First-time activation |
+| Warm/Cool/Cold count   | First-time activation |
+| Jaminan Income target  | First-time activation |
+| L1 tenure start        | First successful payment |
+| Merchant owner set     | First code USED / first seat activation |
+
+First-time activation = (a) subscription code USED by a NEW merchant, or (b) lifetime seat activated by a PROSPECT. Renewals never count.
+
+### 6.1 Cross-Month Example
+Payment 31 Jan; code USED 1 Feb -> earning in January, acquisition in February.
+
+### 6.2 Code Expired Unused
+Earning remains (CONFIRMED to seller as NEW_SALES). Acquisition NOT counted.
+
+### 6.3 Pending Attribution
+- Code-based earnings PENDING at payment; CONFIRMED at USED (per ownership rules) or EXPIRED (to seller).
+- Self-renewal CONFIRMED immediately. Lifetime CONFIRMED at payment.
+- Payout includes ONLY CONFIRMED earnings. PENDING shown with "pending" indicator.
+
+## 7. GUARANTEE SCHEME (JAMINAN INCOME)
+
+### 7.1 Rules
+First 3 months only. Monthly target 10. Condition >=8 (80%). Top-up to 3.000.000. Below 8 = no top-up. Counting: first-time activations only.
+
+### 7.2 Calculation
+If tenureMonth <= 3 AND activatedCustomers >= 8 AND gross < 3.000.000
+THEN jaminan = 3.000.000 - gross ELSE 0.
+
+### 7.3 Examples
+2.200.000 & 8 -> 800.000 | 2.200.000 & 7 -> 0 | 3.100.000 & 9 -> 0 | 2.900.000 & 10 -> 100.000
+
+### 7.4 Display Rules
+Jaminan separate from gross. Included in total income. Excluded from L2 fee base (default).
+
+## 8. WARMTH RULE
+
+### 8.1 Rules (after Month 3, ongoing; counts first-time activations only)
+Warm: 5+ -> 100% payout, 0% held.
+Cool: <5 -> 80% payout, 20% held.
+Cold: <5 for 3 months straight -> 50% payout, 50% held.
+
+### 8.2 Labels: Warm / Cool / Cold
+
+### 8.3 Examples
+Warm 2.000.000 -> 2.000.000/0 | Cool -> 1.600.000/400.000 | Cold -> 1.000.000/1.000.000
+
+### 8.4 Months 1-3: Warmth NOT active; Guarantee applies; no held.
+
+## 9. HELD MONEY
+
+### 9.1 Critical Rules
+Held NEVER forfeited. Temporarily paused. Hit 5+ new customers in any month -> ALL held released in full.
+
+### 9.2 Release Logic
+If currentMonthActivations >= 5 THEN releasedHeld = currentHeldBalance; heldBalance = 0.
+
+### 9.3 Example
+Held 400.000; activations 6 -> Warm; released 400.000; held 0.
+
+### 9.4 Accounting Flow
+Held = liability "L1 held commission". On release: held liability down, unpaid liability up, paid next payout, no extra L2 fee.
+
+### 9.5 Termination/Suspension
+Held remains liability. Admin manual release with reason + audit log.
+
+## 10. L1 TENURE & TARGET
+
+### 10.1 Tenure Start: first successful payment; calendar month counting.
+
+### 10.2 Target Table
+M1-3:10 | M4-6:12 | M7-9:15 | M10-11:18 | M12+:20 (admin configurable)
+
+### 10.3 Target Counting: first-time activations only. Payment alone does not count. Renewals do not count.
+
+## 11. L1 PAYOUT
+
+### 11.1 Frequency: Weekly default; per-L1 monthly override; global default configurable.
+### 11.2 Weekly: Mon-Sun period; paid next Wednesday.
+### 11.3 Monthly: 1st-last; paid 5th next month.
+### 11.4 Breakdown: Gross + Jaminan - Held + Released held +/- Adjustment = Payable.
+### 11.5 Example: 2.450.000 + 0 - 350.000 + 0 + 0 = 2.100.000.
+### 11.6 Statuses: Scheduled / Paid / Failed.
+### 11.7 Payout profile must be complete; else prompt.
+### 11.8 PENDING earnings excluded from payout until CONFIRMED.
+
+## 12. L1 EARNING DISPLAY
+
+### 12.1 Rules: Earning = gross. Held not deducted. Jaminan separate. Total = gross + Jaminan.
+### 12.2 Components: New sales commission; Recurring commission (owner Y); Renewal incentive (2%); Jaminan (separate).
+### 12.3 Period Views (for comparison & motivation):
+All-time earning (since first payment); YTD (since 1 Jan current year); Last month (previous calendar month). Gross, before held; Jaminan separate.
+### 12.4 Earning vs Payout: Earning page gross; Payout page net after held/release.
+
+## 13. L1 PROJECTION
+
+### 13.1 Assumptions: active recurring only; LTV = 3 years; no churn; future new sales NOT included; renewal incentive NOT included.
+### 13.2 Rules: horizon = min(remaining 36-month window, plan LTV). Monthly -> monthly payments to window end. Yearly -> yearly renewals to window end. Lifetime -> none. Follows Y1/Y2/Y3/Y4+ by payment date. After window -> 0.
+
+## 14. MERCHANT OWNERSHIP & RENEWAL SCHEME
+
+### 14.1 Ownership
+Owner = L1 whose code first activated merchant. Permanent. Never transfers by sale. Admin reassign only as dispute/suspension resolution (reason + audit).
+
+### 14.2 Earning Window & Y-Year
+Window = 36 calendar months from merchant's FIRST successful payment.
+Y1 (0-12): 50% | Y2 (12-24): 40% | Y3 (24-36): 30% | Y4+ (36+): 0%.
+Rate by PAYMENT DATE (not expiry/coverage). Pauses/churn do NOT stop clock.
+
+### 14.3 Renewal Commission Routing
+Self-renewal: owner Y, no seller, no acq.
+Renewal via owner code: owner Y + owner 2%, no acq.
+Renewal via other L1 code: owner Y + seller 2%, no acq, ownership unchanged.
+First-time activation: seller full Y1, acq YES.
+
+### 14.4 After 36-Month Window
+Self-renewal: owner 0. Code: owner 0, seller 2% only, no acq.
+
+### 14.5 Plan Switch & Churn Return
+Plan switch adds period to current expiry; tenure continues; no reset.
+Early renewal allowed; commission by payment date.
+Churn return: new period from code USED date; owner keeps rights within window.
+
+### 14.6 Owner Suspended/Leaves
+Owner-side recurring FROZEN as liability. Admin resolves: reassign ownership OR settle to company (reason + audit).
+
+### 14.7 Worked Example (MA, owner L1-A, first pay 8 Aug 2026)
+1: 8 Aug 26 Monthly via L1-A, M1->Y1, 35.000, exp 7 Sep 26.
+2: 7 Sep 26 self-renew Yearly, M1->Y1, 300.000, exp 7 Sep 27.
+3: 7 Sep 27 Monthly via L1-B, M13->Y2, owner 28.000 + L1-B 1.400, exp 7 Oct 27.
+4: Oct 27-Jan 28 churn.
+5: 1 Feb 28 Yearly via L1-B, M18->Y2, owner 240.000 + L1-B 12.000, exp 1 Feb 29.
+6: 1 Feb 29 self Yearly, M30->Y3, 180.000, exp 1 Feb 30.
+7: 1 Feb 30 after window, M42->Y4+, owner 0, seller 2% if code.
+
+## 15. PATH SEPARATION & LIFETIME ACTIVATION
+
+### 15.1 Merchant State Machine
+PROSPECT -> Subscribe -> SUBSCRIBED -> (expiry) CHURNED; renew returns to SUBSCRIBED.
+PROSPECT -> Buy Lifetime -> LIFETIME (terminal).
+
+| State      | Sees                          | Actions |
+|------------|-------------------------------|---------|
+| PROSPECT   | Subscribe | Buy Lifetime   | choose one |
+| SUBSCRIBED | expiry + renewal box          | renew; no Lifetime |
+| CHURNED    | renewal box only              | resubscribe; Lifetime locked |
+| LIFETIME   | nothing                       | none |
+
+### 15.2 Activation Methods
+Subscription = code box. Lifetime = link-based seat link (no code box).
+
+### 15.3 Triple-Layer Path Lock
+L1 Visibility: never show Buy Lifetime to non-prospects.
+L2 Link gating: non-prospect opening lifetime link -> "Not available" BEFORE payment.
+L3 Activation gating: re-verify PROSPECT at activation.
+Design rule: path-lock MUST occur before payment (no-refund constraint).
+
+### 15.4 Direct Purchase (Admin-configurable)
+allowDirectLifetimePurchase: false | allowDirectSubscriptionPurchase: false.
+When ON with no L1: commission 0 (company retains), no acquisition, no owner.
+
+### 15.5 Ownerless Merchant Rule
+Self-activated merchant has no owner and STAYS ownerless permanently. Using L1 code later does NOT establish ownership.
+Ownerless uses L1 renewal code: seller 2%; company retains Y%; no acquisition.
+
+### 15.6 Unified Seats Mechanics
+1 L1 creates lifetime link -> buyer. 2 Buyer opens -> SellMore identifies -> path-lock. PROSPECT proceeds; else blocked. 3 Buyer pays -> full commission to L1. 4 Seat pool (1/2). 5 Default "use 1 for yourself" (auto-activate) + giftable links. 6 Gift link recipient path-lock: PROSPECT activates (acq); non-prospect blocked -> seat returns to pool.
+Seat rules: link expires 30d; value remains; regenerable; buyer may gift both; single auto-assigns; acq on prospect activation; unactivated value = open-ended obligation.
+Seat statuses: POOLED / GIFT_LINK_ACTIVE / ACTIVATED.
+
+## 16. L2 COMMISSION
+
+### 16.1 Core Rule: 10% of each eligible L1's total realized income; starts Month 7; window M7-M42.
+### 16.2 Decay: M1-6 0% | M7-18 10% | M19-30 6.6% | M31-42 3.3% | M43+ 0%.
+### 16.3 Stage Labels: Probation / Active Fee / Decay 1 / Decay 2 / Mature.
+### 16.4 L2 Fee Base: L1 gross (new sales + recurring + renewal incentive). Includes held. Excludes Jaminan (default). Optional includeJaminanInL2Base: false.
+### 16.5 Examples: M4 0 | M8 400.000 | M20 264.000 | M32 132.000 | M43 0 (on 4.000.000).
+### 16.6 Held included in base.
+### 16.7 Jaminan excluded by default; if enabled, included.
+
+## 17. L2 RECRUITMENT
+
+17.1 Target: 3 new L1/month (admin configurable, resets monthly).
+17.2 Counting: only invited L1; counted at approved/active; public-assigned NOT counted.
+17.3 Reassignment: recruitment credit stays with original recruiter; future commission follows current L2.
+
+## 18. L2 PAYOUT
+
+18.1 Monthly only; 1st-last; paid 5th next month.
+18.2 Breakdown: L1 gross base × effective fee +/- adjustment = payable.
+
+## 19. ADMIN — USER MANAGEMENT
+
+19.1 Capabilities: create/approve/reject/assign/reassign/suspend/reactivate; edit payout profile; view performance; manual held release (reason+audit); reassign merchant ownership (reason+audit); resolve frozen owner commission; manual refund exception (reason+audit).
+19.2 Reassignment: future L2 -> new L2; historical -> previous L2; recruitment credit -> original recruiter.
+
+## 20. ADMIN — PRICING
+
+20.1 Schedule change; effective date + apply mode required.
+20.2 Apply Mode: New sales only | All users including existing.
+20.3 Commission percentage-based; recalculates on price change; admin can change percentages.
+20.4 Audit: old, new, effective date, mode, admin.
+
+## 21. ADMIN — SCHEME SETTINGS
+
+21.1 Guarantee: enable true; months 3; target 10; min 8; topUp 3.000.000.
+21.2 Warmth: startAfterMonth 3; warm 5/100/0; cool 80/20; cold 50/50; coldConsecutive 3; release 5.
+21.3 L1 Target: as table.
+21.4 L2: base 10; start 7; includeJaminan false; stages as above.
+21.5 Recruitment: target 3; countOnlyInvited true; event APPROVED_ACTIVE; reset CALENDAR_MONTH.
+21.6 Payout: L1 weekly default (Mon-Sun, Wed); monthly (1st-last, 5th); L2 5th.
+21.7 Money display: ROUNDED|DECIMAL; no symbol; locale separator.
+21.8 Renewal & Ownership: renewalIncentivePercent 2; ownershipWindowMonths 36.
+21.9 Direct purchase: allowDirectLifetimePurchase false; allowDirectSubscriptionPurchase false.
+21.10 Seats: seatLinkExpiryDays 30.
+
+## 22. ADMIN — COMMISSIONS
+
+22.1 Tabs: L1 Commission; L2 Commission; Held; Released Held; Jaminan; Renewal Incentive; Adjustments.
+22.2 L1 fields: L1, Period, Gross, Held, Payable, Jaminan, Status.
+22.3 L2 fields: L2, L1, tenure, Stage, L1 gross, Effective fee, L2 fee.
+22.4 Adjustments: User, Period, Type, Amount, Reason (required), audit, affects payout.
+
+## 23. ADMIN — PAYOUT PROCESSING
+
+23.1 L1: view weekly/monthly; breakdown; mark paid; export.
+23.2 L2: view monthly; breakdown; mark paid; export.
+23.3 Mark Paid: confirmation; status Paid; notify; audit.
+
+## 24. ADMIN — REPORTS
+
+24.1 List: P/L; Liability; Commission Ledger; Held; Released Held; Jaminan; Acquisition; Product Sales; Payout; Merchant Report.
+24.2 P/L: Revenue - L1 commission (new+recurring) - L1 renewal incentive - L2 commission - Jaminan = Net profit. Gateway fees excluded MVP.
+24.3 Liability: L1 unpaid; L1 held; L1 frozen owner; L2 unpaid; unactivated seat obligation (note); total.
+24.4 Ledger fields; 24.5 Held fields; 24.6 Jaminan fields; 24.7 Acquisition fields (incl. renewal redemptions informational, not counted); 24.8 Product Sales fields; 24.9 Payout fields.
+24.10 Merchant Report: Merchant, Owner L1, Plan, Status, First payment, Tenure position, Window remaining, Expiry, Total owner earning, Last renewal method.
+24.11 Export: CSV / PDF / Print.
+
+## 25. ACCOUNTING RULES
+
+25.1 Liability accounts: L1 unpaid; L1 held; L1 frozen owner; L2 unpaid.
+25.2 Held release: held down, unpaid up, next payout, no extra L2 fee.
+25.3 Jaminan: separate P/L line; in L1 total income; excluded from L2 base (default).
+25.4 Renewal incentive: part of seller gross; separate P/L line; included in L2 base.
+25.5 Unactivated seat value: open-ended service obligation; no expiry; note line.
+
+## 26. MAP
+
+26.1 MVP: Admin enabled; L1/L2 disabled; filters disabled until Applocator supports.
+26.2 Applocator: GPS/IP; green active, grey inactive; Open Maps overlay.
+26.3 Future: L1 own merchants; L2 own L1 + their merchants; Admin drill-down.
+
+## 27. DISCORD INTEGRATION
+
+27.1 MVP: invite button; Admin/L2 announcement; webhook; no full chat.
+27.2 Announcement fields: Title, Message, Audience, Send to Discord.
+27.3 Webhook: admin config; test; success/fail shown; fail -> AYO still published.
+
+## 28. NOTIFICATIONS
+
+28.1 In-app only MVP.
+28.2 L1: link paid; code generated; code used; code expired; payout scheduled; payout paid; held released; Jaminan achieved; renewal incentive earned; customer expiring <=7 days; customer churned; customer window ended; announcement. (NO customer-renewed notification.)
+28.3 L2: invited L1 registered; L1 first payment; L2 payout scheduled/paid; announcement.
+28.4 Admin: registration pending; payment success; code expired; payout upcoming/paid; pricing scheduled; webhook failed; lifetime path-lock block attempt; seat link expired; owner commission frozen.
+
+## 29. MONEY DISPLAY RULE
+
+29.1 No symbol, no code, value only, locale separator, rounded/decimal option.
+29.2 Modes: Rounded (default) | Decimal.
+29.3 Examples: 70000->70.000 | 1500000->1.500.000 | -350000->-350.000 | 0->0.
+29.4 Setting: Money Display Format (Rounded|Decimal, default Rounded).
+
+## 30. GLOBAL STATUS ENUMS
+
+PaymentLinkStatus: SHARED|PAID|FAILED|EXPIRED
+CodeStatus: UNUSED|USED|EXPIRED
+UserStatus: PENDING|ACTIVE|SUSPENDED
+PayoutStatus: SCHEDULED|PAID|FAILED
+PayoutFrequency: WEEKLY|MONTHLY
+L1PerformanceState: WARM|COOL|COLD
+L2Stage: PROBATION|ACTIVE_FEE|DECAY_1|DECAY_2|MATURE
+Role: L1|L2|ADMIN
+RecruitmentSource: L2_INVITE|PUBLIC|ADMIN_CREATE
+PriceApplyMode: NEW_SALES_ONLY|ALL_USERS
+MoneyDisplayMode: ROUNDED|DECIMAL
+MerchantState: PROSPECT|SUBSCRIBED|CHURNED|LIFETIME
+EarningType: NEW_SALES|RECURRING|RENEWAL_INCENTIVE|JAMINAN|ADJUSTMENT
+EarningStatus: PENDING|CONFIRMED
+LifetimeSeatStatus: POOLED|GIFT_LINK_ACTIVE|ACTIVATED
+CodeRedemptionType: FIRST_ACTIVATION|RENEWAL
+ProductCategory: SUBSCRIPTION|LIFETIME
+
+## 31. KEY SEPARATIONS
+
+Earning vs Payout; Payment vs Acquisition; Jaminan vs Gross; Held vs Forfeited; L2 fee vs Jaminan; Recruitment vs Assignment; Recruitment credit vs Commission; Code vs Subscription; Path lock (other path disappears permanently); Lifetime vs Subscription (seats/link vs codes/recurring); Owner vs Seller (Y vs 2%, no transfer); Pending vs Confirmed (payout = confirmed only); Renewal vs Acquisition (renewals never count).
+
+## 32. AUDIT LOG
+
+Logged: approval/rejection; suspension/reactivation; L1 assign/reassign; payout paid; adjustment; code reissue; pricing change; scheme change; announcement; webhook change; manual held release; merchant ownership reassign; frozen owner resolution; manual refund exception.
+Fields: Timestamp, Admin user, Action, Object, Old value, New value.
+
+## 33. TITLE & HELPER RULE
+
+Title only when unambiguous; helper only when needed.
+Penghasilan/Payout/Profil/Tim/Kode/Harga/Laporan/My Customers: no helper.
+Target Akuisisi: "Dihitung dari aktivasi pertama. Perpanjangan tidak dihitung."
+Held Balance: "Held money tidak hangus. Capai 5+ pelanggan baru untuk merilis semua held money."
+Jaminan Income: "Berlaku 3 bulan pertama. Capai minimum 8 pelanggan baru."
+Peta (if disabled): "Peta belum tersedia."
+Format Tampilan Angka: "Simbol mata uang tidak ditampilkan. Pemisah ribuan mengikuti pengaturan perangkat."
+Ownership Window: "Owner earns recurring for 36 months from merchant's first payment."
+Renewal Incentive: "One-time 2% for a renewal code sold to an existing merchant."
+Seat: "Lifetime seats can be re-gifted. Link expires in 30 days, seat value remains."
+
+## 34. DEFAULT CONFIGURATION SUMMARY
+
+Guarantee: yes/3/10/8/3.000.000. Warmth: after M3; warm 5/100; cool 80/20; cold 50/50; cold 3 consecutive; release 5.
+L1 target: 10/12/15/18/20. L2: 10%/M7/10/6.6/3.3/0; Jaminan excluded; recruit 3/month.
+Payout: L1 weekly Mon-Sun Wed; monthly 1st-last 5th; L2 5th. Money rounded. Map admin only. Notifications in-app. Discord invite+webhook.
+NEW: renewal incentive 2%; ownership window 36; direct lifetime No; direct subscription No; seat link expiry 30.
+
+## 35. EDGE CASES & RULE RESOLUTIONS
+
+1 Double pay impossible (single-use). 2 Pay after link expiry blocked. 3 Code expired unused: earning remains, no acq, reissue possible. 4 Duo 2nd seat to store that activated 1st: blocked (already LIFETIME), seat returns to pool. 5 L1 suspended mid-period: earnings recorded, payout admin resolution, held liability. 6 L1 leaves with held: manual release + audit. 7 L1 reassigned: L2 prorated; credit stays. 8 L2 suspended: payout frozen; L1 unaffected. 9 First sale mid-month = Month 1. 10 Cold then 5+: Warm, all held released. 11 Price change while SHARED: link fixed. 12 Renewal ALL_USERS: new price from date. 13 Renewal NEW_SALES_ONLY: old price kept. 14 Invited L1 never sells: no tenure, no L2 fee, counts recruitment when active. 15 Guarantee exactly 8: eligible. 16 Gross exactly 3.000.000: top-up 0. 17 Chargeback: no-refund; admin adjustment. 18 Setting change mid-period: next period unless effective date. 19 Webhook fail: in-app published, logged, admin notified. 20 Second replacement: not allowed.
+21 Subscribed opens lifetime link: blocked before payment. 22 Churned opens lifetime link: blocked. 23 Renewal code to other L1's merchant: owner Y + seller 2%, ownership unchanged, no acq. 24 Pay after 36-month window: owner 0; seller 2% code / 0 self. 25 Owner suspended: recurring frozen; admin resolves. 26 Duo seat to subscribed: blocked, returns to pool, re-giftable. 27 Seat unassigned 30d: link expires, value remains, regenerable. 28 Buyer gifts both seats: allowed. 29 Direct purchase no L1: company retains, no acq, ownerless. 30 Ownerless uses L1 code: stays ownerless; seller 2%; company retains Y; no acq. 31 LIFETIME pays again: no path; slip-through -> admin manual refund. 32 PENDING code used by existing: RECURRING owner + 2% seller, no acq.
+
+## 36. ACCEPTANCE TEST CASES
+
+36.1 Money M-1..M-4 (no symbol, locale, toggle, negative/zero).
+36.2 Auth A-1..A-5 (OTP redirect, wrong OTP, suspended blocked, public pending, invite auto-active).
+36.3 Sell S-1..S-7 (link single-use 24h, no cancel, pay->PAID+code+PENDING, fail/expiry no code, WA link only, lifetime deep link, no-SellMore fallback install prompt).
+36.4 Code C-1..C-5 (7d expiry, used stays, reissue rules, replacement acq, WA code only).
+36.5 Lifetime D-1..D-6 (duo pay 2 seats full commission, both prospects 2 acq, seat to subscribed returns, 30d link value remains, gift both allowed, single auto-assign).
+36.6 Earning E-1..E-4 (PENDING at pay, cross-month confirm, expired no acq, PENDING excluded payout).
+36.7 Guarantee G-1..G-5. 36.8 Warmth W-1..W-6 (renewal-only month = 0). 36.9 Payout P-1..P-5 (incentive in gross). 36.10 L2 L-1..L-4 (base incl held+incentive excl Jaminan). 36.11 Admin AD-1..AD-6 (ownership reassign audit, toggle audit). 36.12 X-1..X-5 (map admin, webhook fail, in-app only, titles, NO customer-renewed notification).
+36.13 Ownership O-1..O-9 (owner set, other-L1 renewal, month35 Y3, after36 owner0/seller2%, churn return, suspended frozen, self-renew immediate, ownerless stays ownerless + seller 2%, direct no acq).
+36.14 Path T-1..T-6 (subscribed blocked, churned blocked, prospect 2 paths, SUBSCRIBED UI, CHURNED UI, LIFETIME UI).
+
+## 37. DATA MODEL (FUNCTIONAL CONTRACT)
+
+User: id,name,email,role,status,registeredAt,approvedAt,firstPaymentAt,tenureMonth,assignedL2Id,recruitedByL2Id,recruitmentSource,payoutFrequency
+PayoutProfile: userId,bankName,accountNumber,accountName,completed
+Merchant: id,sellMoreStoreId,storeName,ownerL1Id(nullable),firstPaymentAt,firstActivatedAt,currentPlanId,subscriptionStatus(SUBSCRIBED|CHURNED|LIFETIME),currentExpiryAt,lifetimeActivatedAt
+LifetimeSeat: id,paymentLinkId,buyerMerchantId,sellerL1Id,planId,seatIndex,status(POOLED|GIFT_LINK_ACTIVE|ACTIVATED),assignedToMerchantId(nullable),activationLinkToken,linkGeneratedAt,linkExpiresAt,activatedAt,regenerationCount
+ProductPlan: id,name,price,priceUnit,category(SUBSCRIPTION|LIFETIME),commissionType(RECURRING_Y|ONE_TIME),y1Percent,y2Percent,y3Percent,y4PlusPercent,oneTimePercent,seatCount,active
+PaymentLink: id,l1Id,planId,amount,status,createdAt,expiresAt,paidAt,failedAt,codeIds[]
+SubscriptionCode: id,code,paymentLinkId,l1Id,planId,status,generatedAt,expiresAt,usedAt,storeName,originalCodeId,replacementCodeId,redemptionType(FIRST_ACTIVATION|RENEWAL)
+EarningLine: id,l1Id,date,period,type(NEW_SALES|RECURRING|RENEWAL_INCENTIVE|JAMINAN|ADJUSTMENT),planId,amount,merchantId(nullable),status(PENDING|CONFIRMED),sourceCodeId(nullable)
+HeldRecord: id,l1Id,period,gross,heldPercent,heldAmount,releasedAmount,releasedAt,status(HELD|RELEASED)
+PayoutLine: id,userId,role,period,frequency,payoutDate,gross,jaminan,held,releasedHeld,adjustment,payable,status
+L2EarningLine: id,l2Id,l1Id,period,l1TenureMonth,stage,l1Gross,effectiveFeePercent,l2Fee
+ScheduledPriceChange: id,planId,oldPrice,newPrice,effectiveDate,applyMode,status,createdBy
+AuditLogEntry: id,timestamp,adminId,action,object,oldValue,newValue
+Announcement: id,title,message,audience,sendToDiscord,discordStatus,createdBy,createdAt
+Notification: id,userId,type,message,read,createdAt
+
+## 38. MY CUSTOMERS
+
+38.1 L1: summary cards (active, expiring<=7d, paused/churned, lifetime); list (store, plan, status, expiry, tenure position, my earned, last renewal method); detail (profile, payment history w/ my commission, renewal history, window status). Sort nearest expiry first.
+38.2 L2 Team Customers (MVP): aggregate per L1; read-only drill-down; no ownership actions.
+38.3 Admin: all merchants + owner + status + window + earning history; actions reassign ownership / settle frozen (reason+audit).
+38.4 Churn-prevention notifications: expiring in 7 days; churned; window ended. NO notification on customer renewal.
+
+## 39. SELLMORE <-> AYO SDK CONTRACT (FUNCTIONAL)
+
+39.1 Purpose: SDK = SellMore-embedded face of AYO; same rules; only place identity known; performs pre-payment path-lock; codes/seats server-side.
+39.2 Identity: stable key sellMoreStoreId; required before lifetime payment; AYO matches by it; no Merchant record = PROSPECT.
+39.3 Events: queryMerchantState; pathLockCheck; redeemSubscriptionCode; reportSelfRenewal; activateLifetimeSeat; regenerateSeatLink.
+39.4 Edge handling: paid-but-blocked prevented; churned return renewal-only; unknown id = PROSPECT; seat re-gift no refund; direct toggle -> no owner/company retains; no-SellMore -> install prompt.
+
+## 40. DOCUMENT STATUS
+
+Sections 1-13 core spec (v2.0). 14-15 ownership & path separation. 16-34 L2/admin/rules/edge/tests. 35 data model. 36-39 My Customers & SDK.
+This completes the single-file merged functional specification (v2.0).
+
+
+====================================================================
+PART 2 — L1 COMMISSION SCHEME
+====================================================================
+
+## 2. PRODUCT PRICING & COMMISSION (in %)
+
+| PLAN             | PRICE        | YOUR COMMISSION (% of price) |
+|------------------|--------------|------------------------------|
+| Monthly          | Rp70.000/mo  | Y1: 50% · Y2: 40% · Y3: 30% · Y4+: 0% |
+| Yearly           | Rp600.000/yr | Y1: 50% · Y2: 40% · Y3: 30% · Y4+: 0% |
+| Lifetime (1 user)| Rp1.500.000  | One-time 33.33% (Rp500.000) |
+| Lifetime Duo     | Rp2.000.000  | One-time 35% (Rp700.000) |
+
+*Commission follows price changes automatically since it's percentage-based.
+
+## 3. GUARANTEE SCHEME (First 3 Months Only)
+- Monthly target 10 new customer
+- Condition: Achieve ≥80% of monthly target (minimum 8 new customers).
+- With 10 visits/day (300 visits/month), 8 customers = just 2.7% conversion.
+- Benefit: Company top-up your commission to Rp3.000.000 for that month.
+- Note: Below 80% = no top-up for that month.
+
+## 4. WARMTH RULE (After Month 3 — ongoing)
+
+| STATUS  | NEW CUSTOMERS THIS MONTH | PAYOUT | HELD AMOUNT |
+|---------|--------------------------|--------|-------------|
+| Warm    | 5+                       | 100%   | 0% held |
+| Cool    | <5                       | 80%    | 20% held temporarily |
+| Cold    | <5 for 3 months straight | 50%    | 50% held temporarily |
+
+## 5. HELD MONEY — CRITICAL RULE
+- Held money is NEVER forfeited.
+- It is temporarily paused.
+- As soon as you hit 5+ new customers in any month, ALL previously held money is released to you in full.
+
+
+====================================================================
+PART 3 — L2 COMMISSION SCHEME
+====================================================================
+
+## 3. L2 COMMISSION STRUCTURE
+- L2 earns 10% of EACH L1 agent's total realized income (all commissions earned by that L1).
+- L2 commission starts from MONTH 7 of each L1 agent's tenure (skipping the first 6 months of probation/ramp).
+- L2 decay (applied to the 10% fee) per L1's tenure:
+
+| TENURE (L1 age) | L2 DECAY FACTOR | EFFECTIVE L2 FEE |
+|-----------------|-----------------|------------------|
+| Month 1–6       | 0%              | 0% (no fee) |
+| Month 7–18      | 100%            | 10% of L1 income |
+| Month 19–30     | 66%             | 6.6% of L1 income |
+| Month 31–42     | 33%             | 3.3% of L1 income |
+| Month 43+       | 0%              | 0% (L1 fully matures) |
+
+- Total earning window per L1 for L2 = 36 months (M7 to M42).
+
+====================================================================
+END OF CONSOLIDATED REFERENCE
+====================================================================

@@ -1,178 +1,102 @@
-import { useEffect, useState } from "react";
-import { useRouter } from "next/router";
+import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
-import { useAction, useQuery } from "convex/react";
+import { useRouter } from "next/router";
+import { FormEvent, useState } from "react";
+import { Wordmark } from "@/components/AppShell";
+import { Splash } from "@/components/Guard";
+import { Button } from "@/components/ui/Button";
+import { Field, Input } from "@/components/ui/Form";
 import { api } from "@/convex/_generated/api";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Loader2, CheckCircle2 } from "lucide-react";
-import { lookupGeoHint } from "@/lib/geoRegion";
-import { BuildIdStamp } from "@/components/BuildIdStamp";
+import { errorMessage } from "@/lib/utils";
 
-export default function AcceptInvitePage() {
+// §5.3 — an invited L1 lands active under the inviting L2, no approval queue.
+
+export default function UndanganPage() {
   const router = useRouter();
   const token = typeof router.query.token === "string" ? router.query.token : "";
+  const info = useQuery(api.registration.inviteInfo, token ? { token } : "skip");
+  const register = useMutation(api.registration.registerViaInvite);
 
-  const preview = useQuery(api.agentInvites.getInvitePreview, token ? { token } : "skip");
-  const accept = useAction(api.agentInvites.acceptInvite);
-
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
+  const [form, setForm] = useState({ name: "", email: "", mobile: "" });
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
 
-  // Auto-resolve the invitee's region from their IP so the new salesperson
-  // lands in the right region without a wilayah picker. Failure is silent —
-  // the backend falls back to a default region.
-  const [geoHint, setGeoHint] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    const controller = new AbortController();
-    lookupGeoHint(controller.signal)
-      .then((hint) => {
-        if (!cancelled) setGeoHint(hint);
-      })
-      .catch(() => {
-        /* leave null; backend defaults */
-      });
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, []);
-
-  async function onSubmit(e: React.FormEvent) {
+  async function submit(e: FormEvent) {
     e.preventDefault();
+    setBusy(true);
     setError(null);
-    if (password.length < 8) {
-      setError("Kata sandi minimal 8 karakter.");
-      return;
-    }
-    if (password !== confirmPassword) {
-      setError("Konfirmasi kata sandi tidak cocok.");
-      return;
-    }
-    setLoading(true);
     try {
-      await accept({ token, password, geoHint: geoHint ?? undefined });
-      setSuccess(true);
+      await register({ token, ...form, mobile: form.mobile || undefined });
+      setDone(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Terjadi kesalahan.");
+      setError(errorMessage(err));
     } finally {
-      setLoading(false);
+      setBusy(false);
     }
   }
 
-  if (success) {
-    return (
-      <Shell>
-        <CheckCircle2 className="mx-auto h-12 w-12 text-green-500" />
-        <h2 className="text-lg font-semibold">Akun aktif!</h2>
-        <p className="text-sm text-muted-foreground">
-          Kata sandi kamu sudah disimpan. Sekarang kamu bisa masuk.
-        </p>
-        <Link
-          href="/login"
-          className="inline-block text-sm font-medium text-primary underline"
-        >
-          Ke halaman masuk
-        </Link>
-      </Shell>
-    );
-  }
-
-  if (preview === undefined) {
-    return (
-      <Shell>
-        <Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
-      </Shell>
-    );
-  }
-
-  if (preview.status !== "valid") {
-    const message =
-      preview.status === "expired"
-        ? "Tautan undangan ini sudah kedaluwarsa. Minta admin membuatkan yang baru."
-        : preview.status === "used"
-          ? "Tautan undangan ini sudah dipakai."
-          : "Tautan undangan tidak ditemukan.";
-    return (
-      <Shell>
-        <h2 className="text-lg font-semibold">Tautan tidak berlaku</h2>
-        <p className="text-sm text-muted-foreground">{message}</p>
-      </Shell>
-    );
-  }
+  if (!token || info === undefined) return <Splash />;
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/30 p-6">
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-md bg-primary text-sm font-bold text-primary-foreground">
-            AYO
+    <main className="mx-auto flex min-h-[100dvh] w-full max-w-sm flex-col px-6 pb-10 pt-[14vh]">
+      <Wordmark />
+
+      {!info.valid ? (
+        <>
+          <h1 className="mt-10 text-[28px] font-semibold tracking-[-0.03em]">
+            Undangan tidak berlaku
+          </h1>
+          <p className="mt-2 text-[15px] text-ink-mute">
+            Minta tautan baru dari koordinator Anda.
+          </p>
+        </>
+      ) : done ? (
+        <>
+          <h1 className="mt-10 text-[28px] font-semibold tracking-[-0.03em]">Akun aktif</h1>
+          <p className="mt-2 text-[15px] text-ink-mute">
+            Masuk dengan email Anda untuk mulai berjualan.
+          </p>
+          <Link href="/masuk" className="mt-6">
+            <Button block>Masuk</Button>
+          </Link>
+        </>
+      ) : (
+        <form onSubmit={submit} className="mt-8">
+          <p className="eyebrow">Undangan dari</p>
+          <h1 className="mt-1 text-[28px] font-semibold tracking-[-0.03em]">{info.l2Name}</h1>
+          <div className="mt-6 space-y-4">
+            <Field label="Nama">
+              <Input
+                required
+                autoFocus
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+              />
+            </Field>
+            <Field label="Email">
+              <Input
+                type="email"
+                inputMode="email"
+                required
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+              />
+            </Field>
+            <Field label="Nomor HP" hint="Opsional" error={error}>
+              <Input
+                inputMode="tel"
+                placeholder="0811…"
+                value={form.mobile}
+                onChange={(e) => setForm({ ...form, mobile: e.target.value })}
+              />
+            </Field>
           </div>
-          <CardTitle>Halo, {preview.name}</CardTitle>
-          <CardDescription>
-            Pilih kata sandi untuk akun {preview.email}. Setelah ini kamu bisa
-            langsung masuk ke Agent Portal.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={onSubmit} className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="password">Kata sandi</Label>
-              <Input
-                id="password"
-                type="password"
-                required
-                autoComplete="new-password"
-                placeholder="Minimal 8 karakter"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="confirmPassword">Ulangi kata sandi</Label>
-              <Input
-                id="confirmPassword"
-                type="password"
-                required
-                autoComplete="new-password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-              />
-            </div>
-
-            {error && <p className="text-sm text-destructive">{error}</p>}
-
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading && <Loader2 className="animate-spin" />}
-              Aktifkan Akun
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-      <BuildIdStamp />
-    </div>
-  );
-}
-
-function Shell({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/30 p-6">
-      <Card className="w-full max-w-sm text-center">
-        <CardContent className="pt-8 pb-8 space-y-3">{children}</CardContent>
-      </Card>
-      <BuildIdStamp />
-    </div>
+          <Button type="submit" block className="mt-6" disabled={busy}>
+            {busy ? "Membuat…" : "Buat akun"}
+          </Button>
+        </form>
+      )}
+    </main>
   );
 }

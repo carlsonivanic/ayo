@@ -1,0 +1,32 @@
+2. PRODUCT PRICING & COMMISSION (in %)
+
+   PLAN             | PRICE        | YOUR COMMISSION (% of price)
+   -----------------|--------------|------------------------------------------
+   Monthly          | Rp70.000/mo  | Y1: 50% · Y2: 40% · Y3: 30% · Y4+: 0%
+   Yearly           | Rp600.000/yr | Y1: 50% · Y2: 40% · Y3: 30% · Y4+: 0%
+   Lifetime (1 user)| Rp1.500.000  | One-time 33.33% (Rp500.000)
+   Lifetime Duo     | Rp2.000.000  | One-time 35% (Rp700.000)
+
+   *Commission follows price changes automatically since it's percentage-based.
+
+3. GUARANTEE SCHEME (First 3 Months Only)
+- Monthly target 10 new customer
+   - Condition: Achieve ≥80% of monthly target (minimum 8 new customers).
+   - With 10 visits/day (300 visits/month), 8 customers = just 2.7% conversion.
+   - Benefit: Company top-up your commission to Rp3.000.000 for that month.
+   - Note: Below 80% = no top-up for that month.
+
+4. WARMTH RULE (After Month 3 — ongoing)
+
+   STATUS    | NEW CUSTOMERS THIS MONTH | PAYOUT    | HELD AMOUNT
+   ----------|--------------------------|-----------|--------------------------
+   🔥 Warm   | 5+                       | 100%      | 0% held
+   🌤️ Cool  | <5                       | 80%       | 20% held temporarily
+   ❄️ Cold  | <5 for 3 months straight | 50%       | 50% held temporarily
+
+5. HELD MONEY — CRITICAL RULE
+   - Held money is NEVER forfeited.
+   - It is temporarily paused.
+   - As soon as you hit 5+ new customers in any month, ALL previously held money is released to you in full.
+
+===========================================================

@@ -2,252 +2,565 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { authTables } from "@convex-dev/auth/server";
 
-// AYO — Sell More Subscription Platform schema.
-// Money values are stored as v.int64() (BigInt IDR), never floats.
-// licenses.agentId is IMMUTABLE after first activation — enforced in the mutation layer.
+// AYO — sales & coordination app for SellMore POS.
+// Source of truth: GUIDES/AYO Consolidated Reference.txt (functional spec v2.0)
+// and GUIDES/AYO Backend Stack 1.3.1.txt (§6 data model).
+//
+// Money is stored as plain integer IDR (never formatted, never a float with
+// cents). Display formatting lives in the client (§29).
+// Periods are "YYYY-MM" in Asia/Jakarta (§15.5).
+
+export const role = v.union(v.literal("L1"), v.literal("L2"), v.literal("ADMIN"));
+export const userStatus = v.union(
+  v.literal("PENDING"),
+  v.literal("ACTIVE"),
+  v.literal("SUSPENDED"),
+);
+export const recruitmentSource = v.union(
+  v.literal("L2_INVITE"),
+  v.literal("PUBLIC"),
+  v.literal("ADMIN_CREATE"),
+);
+export const payoutFrequency = v.union(v.literal("WEEKLY"), v.literal("MONTHLY"));
+export const merchantState = v.union(
+  v.literal("SUBSCRIBED"),
+  v.literal("CHURNED"),
+  v.literal("LIFETIME"),
+);
+export const productCategory = v.union(
+  v.literal("SUBSCRIPTION"),
+  v.literal("LIFETIME"),
+);
+export const earningType = v.union(
+  v.literal("NEW_SALES"),
+  v.literal("RECURRING"),
+  v.literal("RENEWAL_INCENTIVE"),
+  v.literal("JAMINAN"),
+  v.literal("ADJUSTMENT"),
+);
+export const earningStatus = v.union(v.literal("PENDING"), v.literal("CONFIRMED"));
+export const warmthState = v.union(
+  v.literal("WARM"),
+  v.literal("COOL"),
+  v.literal("COLD"),
+);
+export const l2Stage = v.union(
+  v.literal("PROBATION"),
+  v.literal("ACTIVE_FEE"),
+  v.literal("DECAY_1"),
+  v.literal("DECAY_2"),
+  v.literal("MATURE"),
+);
+export const payoutStatus = v.union(
+  v.literal("SCHEDULED"),
+  v.literal("PAID"),
+  v.literal("FAILED"),
+);
+
 export default defineSchema({
-  // Convex Auth component tables (users, authAccounts, authSessions, ...).
+  // --- Convex Auth component tables; `users` is extended below. -------------
   ...authTables,
 
-  // adminProfiles — links a Convex Auth user to an internal admin role.
-  // Replaces INIT_PROMPT's hand-rolled `admins` table (Convex Auth owns credentials).
-  adminProfiles: defineTable({
-    authUserId: v.id("users"),
-    name: v.string(),
-    role: v.union(
-      v.literal("super_admin"),
-      v.literal("finance_admin"),
-      v.literal("ops_admin"),
-    ),
-  }).index("by_user", ["authUserId"]),
+  // §3.4 / §6.1 users. Auth owns name/email/phone; AYO owns the rest.
+  // tenureMonth is DERIVED from firstPaymentAt (§10.1) and never stored.
+  users: defineTable({
+    // auth-owned
+    name: v.optional(v.string()),
+    image: v.optional(v.string()),
+    email: v.optional(v.string()),
+    emailVerificationTime: v.optional(v.number()),
+    phone: v.optional(v.string()),
+    phoneVerificationTime: v.optional(v.number()),
+    isAnonymous: v.optional(v.boolean()),
+    // AYO-owned
+    role: v.optional(role),
+    status: v.optional(userStatus),
+    mobile: v.optional(v.string()), // normalized E.164, unique when present (§6.3)
+    registeredAt: v.optional(v.number()),
+    approvedAt: v.optional(v.number()),
+    firstPaymentAt: v.optional(v.number()),
+    assignedL2Id: v.optional(v.id("users")),
+    recruitedByL2Id: v.optional(v.id("users")),
+    recruitmentSource: v.optional(recruitmentSource),
+    payoutFrequency: v.optional(payoutFrequency),
+    suspendReason: v.optional(v.string()),
+  })
+    .index("email", ["email"])
+    .index("phone", ["phone"])
+    .index("by_role", ["role"])
+    .index("by_status", ["status"])
+    .index("by_role_status", ["role", "status"])
+    .index("by_l2", ["assignedL2Id"])
+    .index("by_recruiter", ["recruitedByL2Id"])
+    .index("by_mobile", ["mobile"]),
 
-  // system_parameters — ALL business values live here.
-  // Always read the row with the latest effectiveAt <= now() for a given key+region.
-  systemParameters: defineTable({
-    key: v.string(),
-    value: v.string(),
-    regionId: v.optional(v.id("regions")), // undefined = global default
-    effectiveAt: v.number(),
-    createdBy: v.optional(v.id("adminProfiles")),
+  // §5.3 L2 invite links.
+  invites: defineTable({
+    l2Id: v.id("users"),
+    token: v.string(),
+    status: v.union(v.literal("ACTIVE"), v.literal("USED"), v.literal("REVOKED")),
+    createdAt: v.number(),
+    usedAt: v.optional(v.number()),
+    usedByUserId: v.optional(v.id("users")),
     note: v.optional(v.string()),
   })
-    .index("by_key", ["key"])
-    .index("by_key_region", ["key", "regionId"])
-    .index("by_key_region_effective", ["key", "regionId", "effectiveAt"]),
+    .index("by_token", ["token"])
+    .index("by_l2", ["l2Id"]),
 
-  agents: defineTable({
-    phone: v.string(), // enforce uniqueness in the mutation layer
-    name: v.string(),
-    // Links the salesperson to a Convex Auth user so they can sign in to the
-    // Agent Portal. Optional: agents created before the portal (or by admins
-    // without credentials) have no login. Set once at registration.
-    authUserId: v.optional(v.id("users")),
-    level: v.number(), // 1=L1, 2=L2, 3=L3
-    status: v.union(
-      v.literal("probation"),
-      v.literal("active"),
-      v.literal("dormant"),
-      v.literal("inactive"),
-      v.literal("suspended"),
-    ),
-    regionId: v.id("regions"),
-    referrerId: v.optional(v.id("agents")),
-    enrolledAt: v.number(),
-    feePaidAt: v.optional(v.number()),
-    escrowAmount: v.int64(),
-    escrowReleasedAt: v.optional(v.number()),
-    suspendedAt: v.optional(v.number()),
-    lastActiveAt: v.optional(v.number()),
-  })
-    .index("by_phone", ["phone"])
-    .index("by_auth_user", ["authUserId"])
-    .index("by_region", ["regionId"])
-    .index("by_referrer", ["referrerId"])
-    .index("by_status", ["status"])
-    .index("by_level", ["level"]),
-
-  // agentInvites — admin-issued invite links for creating a new salesperson
-  // login directly from the admin panel. The admin fills in the profile
-  // (name/phone/email/level); the invitee opens the link and only chooses their
-  // own password, so the admin never sees or sets it. Region is resolved from
-  // the invitee's IP at redemption, so it's NOT set on the invite — kept
-  // optional for backward-compat with rows created before this change.
-  agentInvites: defineTable({
-    token: v.string(),
-    name: v.string(),
-    phone: v.string(),
+  // §3.2 public registration queue.
+  registrationRequests: defineTable({
     email: v.string(),
-    level: v.number(),
-    regionId: v.optional(v.id("regions")),
-    createdBy: v.id("adminProfiles"),
+    name: v.string(),
+    mobile: v.optional(v.string()),
+    intendedRole: v.union(v.literal("L1"), v.literal("L2")),
+    status: v.union(
+      v.literal("PENDING"),
+      v.literal("APPROVED"),
+      v.literal("REJECTED"),
+    ),
+    createdAt: v.number(),
+    decidedAt: v.optional(v.number()),
+    decidedBy: v.optional(v.id("users")),
+    reason: v.optional(v.string()),
+    userId: v.optional(v.id("users")),
+  })
+    .index("by_email", ["email"])
+    .index("by_status", ["status"])
+    .index("by_user", ["userId"]),
+
+  // §3.5 payout profile.
+  payoutProfiles: defineTable({
+    userId: v.id("users"),
+    bankName: v.string(),
+    accountNumber: v.string(),
+    accountName: v.string(),
+    completed: v.boolean(),
+  }).index("by_user", ["userId"]),
+
+  // §37 / C1. PROSPECT = absence of a row.
+  merchants: defineTable({
+    sellMoreStoreId: v.string(),
+    storeName: v.optional(v.string()),
+    ownerL1Id: v.optional(v.id("users")), // null = ownerless, permanently (§15.5)
+    firstPaymentAt: v.number(),
+    firstActivatedAt: v.number(),
+    currentPlanId: v.optional(v.id("productPlans")),
+    subscriptionStatus: merchantState,
+    currentExpiryAt: v.optional(v.number()),
+    lifetimeActivatedAt: v.optional(v.number()),
+    // Applocator/POS extras (§26.2 map, §38.1 list)
+    location: v.optional(v.string()),
+    lat: v.optional(v.number()),
+    lng: v.optional(v.number()),
+    lastSeenAt: v.optional(v.number()),
+  })
+    .index("by_store_id", ["sellMoreStoreId"])
+    .index("by_owner", ["ownerL1Id"])
+    .index("by_status", ["subscriptionStatus"])
+    .index("by_expiry", ["currentExpiryAt"]),
+
+  // §2 pricing. Commission is percentage-based (§20.3).
+  productPlans: defineTable({
+    key: v.string(), // MONTHLY | YEARLY | LIFETIME_SINGLE | LIFETIME_DUO
+    name: v.string(),
+    price: v.number(),
+    renewalPrice: v.optional(v.number()), // §20.2 NEW_SALES_ONLY price lock
+    priceUnit: v.string(), // "month" | "year" | "once"
+    durationMonths: v.number(), // 1 | 12 | 0 for lifetime
+    category: productCategory,
+    commissionType: v.union(v.literal("RECURRING_Y"), v.literal("ONE_TIME")),
+    y1Percent: v.number(),
+    y2Percent: v.number(),
+    y3Percent: v.number(),
+    y4PlusPercent: v.number(),
+    oneTimePercent: v.number(),
+    seatCount: v.number(),
+    active: v.boolean(),
+    sortOrder: v.number(),
+  })
+    .index("by_key", ["key"])
+    .index("by_active", ["active"]),
+
+  // §4.1-4.4 payment links (subscription) and §4.5 lifetime deep links.
+  paymentLinks: defineTable({
+    l1Id: v.optional(v.id("users")), // absent = direct purchase (§15.4)
+    planId: v.id("productPlans"),
+    kind: productCategory,
+    amount: v.number(),
+    token: v.string(), // public URL token
+    status: v.union(
+      v.literal("SHARED"),
+      v.literal("PAID"),
+      v.literal("FAILED"),
+      v.literal("EXPIRED"),
+    ),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    paidAt: v.optional(v.number()),
+    failedAt: v.optional(v.number()),
+    idempotencyKey: v.optional(v.string()),
+    buyerSellMoreStoreId: v.optional(v.string()),
+    buyerMerchantId: v.optional(v.id("merchants")),
+    gatewayRef: v.optional(v.string()),
+    refundedAt: v.optional(v.number()),
+  })
+    .index("by_token", ["token"])
+    .index("by_l1", ["l1Id"])
+    .index("by_l1_created", ["l1Id", "createdAt"])
+    .index("by_status_expiry", ["status", "expiresAt"])
+    .index("by_paidAt", ["paidAt"])
+    .index("by_idempotency", ["idempotencyKey"]),
+
+  // §5 codes — subscription products only.
+  subscriptionCodes: defineTable({
+    code: v.string(), // SM-XXXX-XXXX-XXXXX
+    paymentLinkId: v.optional(v.id("paymentLinks")),
+    l1Id: v.optional(v.id("users")),
+    planId: v.id("productPlans"),
+    status: v.union(v.literal("UNUSED"), v.literal("USED"), v.literal("EXPIRED")),
+    generatedAt: v.number(),
     expiresAt: v.number(),
     usedAt: v.optional(v.number()),
-    agentId: v.optional(v.id("agents")),
-  }).index("by_token", ["token"]),
-
-  // agent_team_memberships — THE tenure clock table.
-  agentTeamMemberships: defineTable({
-    l1AgentId: v.id("agents"),
-    l2AgentId: v.id("agents"),
-    enrolledAt: v.number(),
-    graduatedAt: v.optional(v.number()),
-    graduationType: v.optional(
-      v.union(
-        v.literal("natural"),
-        v.literal("promoted"),
-        v.literal("voluntary_exit"),
-      ),
+    storeName: v.optional(v.string()),
+    merchantId: v.optional(v.id("merchants")),
+    originalCodeId: v.optional(v.id("subscriptionCodes")),
+    replacementCodeId: v.optional(v.id("subscriptionCodes")),
+    redemptionType: v.optional(
+      v.union(v.literal("FIRST_ACTIVATION"), v.literal("RENEWAL")),
     ),
-  })
-    .index("by_l1", ["l1AgentId"])
-    .index("by_l2", ["l2AgentId"])
-    .index("by_l1_l2", ["l1AgentId", "l2AgentId"])
-    .index("by_open", ["graduatedAt"]),
-
-  licenses: defineTable({
-    deviceId: v.string(),
-    agentId: v.optional(v.id("agents")), // undefined = self-serve. IMMUTABLE after first set.
-    tier: v.union(
-      v.literal("daily"),
-      v.literal("weekly"),
-      v.literal("monthly"),
-      v.literal("annual"),
-      v.literal("lifetime"),
-    ),
-    activatedAt: v.number(),
-    expiresAt: v.optional(v.number()),
-    creditDays: v.number(),
-    gracePeriodDays: v.number(),
-    status: v.union(
-      v.literal("active"),
-      v.literal("expired"),
-      v.literal("revoked"),
-    ),
-    regionId: v.id("regions"),
-    codeId: v.optional(v.id("subscriptionCodes")),
-    // Price snapshot (IDR) captured at activation — the price the buyer actually
-    // paid. Optional for rows created before pricing snapshots existed.
-    priceIDR: v.optional(v.int64()),
-    // Merchant identity captured from the POS at activation (the Sellmore
-    // business profile: name + location). Lets salespeople see WHO redeemed a
-    // code, not just an opaque deviceId. Optional for rows created before this.
-    merchantName: v.optional(v.string()),
-    merchantLocation: v.optional(v.string()),
-  })
-    .index("by_device", ["deviceId"])
-    .index("by_agent", ["agentId"])
-    .index("by_code", ["codeId"])
-    .index("by_status", ["status"]),
-
-  subscriptionCodes: defineTable({
-    code: v.string(), // SM-XXXX-XXXX-XXXXX — enforce uniqueness in mutation layer
-    tier: v.union(
-      v.literal("daily"),
-      v.literal("weekly"),
-      v.literal("monthly"),
-      v.literal("annual"),
-      v.literal("lifetime"),
-    ),
-    lifetimeKind: v.optional(
-      v.union(v.literal("solo"), v.literal("duo")),
-    ),
-    agentId: v.optional(v.id("agents")),
-    batchId: v.optional(v.string()),
-    channel: v.union(
-      v.literal("agent"),
-      v.literal("retail"),
-      v.literal("self_serve"),
-    ),
-    status: v.union(
-      v.literal("unused"),
-      v.literal("active"),
-      v.literal("expired"),
-      v.literal("revoked"),
-    ),
-    expiresUnusedAt: v.optional(v.number()),
-    duoPairId: v.optional(v.id("subscriptionCodes")),
-    duoExpiresAt: v.optional(v.number()),
-    regionId: v.id("regions"),
-    activatedAt: v.optional(v.number()),
-    revokedReason: v.optional(v.string()),
-    createdBy: v.optional(v.id("adminProfiles")),
-    // Price snapshot (IDR) locked in when the code was issued (sold). Read from
-    // systemParameters at generation time so later price changes never rewrite
-    // history. For a Lifetime Duo pair the bundle price is split evenly across
-    // the two codes. Optional for rows created before pricing snapshots existed.
-    priceIDR: v.optional(v.int64()),
+    priceAtIssue: v.number(),
   })
     .index("by_code", ["code"])
-    .index("by_agent", ["agentId"])
-    .index("by_batch", ["batchId"])
-    .index("by_status", ["status"]),
+    .index("by_expiry_status", ["status", "expiresAt"])
+    .index("by_l1", ["l1Id"])
+    .index("by_l1_generated", ["l1Id", "generatedAt"])
+    .index("by_payment_link", ["paymentLinkId"])
+    .index("by_usedAt", ["usedAt"]),
 
-  // commission_ledger — APPEND-ONLY. Corrections are new reversing entries.
-  commissionLedger: defineTable({
-    agentId: v.id("agents"),
-    licenseId: v.optional(v.id("licenses")),
-    type: v.union(
-      v.literal("l1_residual"),
-      v.literal("l1_closing"),
-      v.literal("l2_override"),
-      v.literal("l3_override"),
-      v.literal("area_bonus"),
-      v.literal("growth_bonus"),
-      v.literal("promo_bonus"),
-      v.literal("finder_fee"),
-      v.literal("escrow_release"),
-    ),
-    amount: v.int64(), // IDR, positive = credit
-    periodStart: v.optional(v.string()),
-    periodEnd: v.optional(v.string()),
-    multiplierPct: v.optional(v.number()),
+  // §2.2 / §15.6 unified seats.
+  lifetimeSeats: defineTable({
+    paymentLinkId: v.id("paymentLinks"),
+    buyerSellMoreStoreId: v.optional(v.string()),
+    buyerMerchantId: v.optional(v.id("merchants")),
+    sellerL1Id: v.optional(v.id("users")),
+    planId: v.id("productPlans"),
+    seatIndex: v.number(),
     status: v.union(
-      v.literal("pending"),
-      v.literal("settled"),
-      v.literal("disputed"),
-      v.literal("reversed"),
+      v.literal("POOLED"),
+      v.literal("GIFT_LINK_ACTIVE"),
+      v.literal("ACTIVATED"),
     ),
-    payoutId: v.optional(v.string()),
+    assignedToMerchantId: v.optional(v.id("merchants")),
+    activationLinkToken: v.optional(v.string()),
+    linkGeneratedAt: v.optional(v.number()),
+    linkExpiresAt: v.optional(v.number()),
+    activatedAt: v.optional(v.number()),
+    regenerationCount: v.number(),
+    unitValue: v.number(), // §24.3 unactivated seat obligation
   })
-    .index("by_agent", ["agentId"])
-    .index("by_license", ["licenseId"])
+    .index("by_token", ["activationLinkToken"])
     .index("by_status", ["status"])
-    .index("by_agent_status", ["agentId", "status"]),
+    .index("by_buyer_store_id", ["buyerSellMoreStoreId"])
+    .index("by_payment_link", ["paymentLinkId"])
+    .index("by_seller", ["sellerL1Id"])
+    .index("by_link_expiry", ["status", "linkExpiresAt"]),
 
-  agentKpiSnapshots: defineTable({
-    agentId: v.id("agents"),
-    periodType: v.union(v.literal("quarter"), v.literal("semester")),
-    periodStart: v.string(),
-    periodEnd: v.string(),
-    axis1Pct: v.optional(v.number()),
-    axis1Pass: v.optional(v.boolean()),
-    axis2Events: v.optional(v.number()),
-    axis2Pass: v.optional(v.boolean()),
-    activations: v.optional(v.number()),
-    statusBefore: v.optional(v.string()),
-    statusAfter: v.optional(v.string()),
-    multiplierPct: v.optional(v.number()),
+  // §6 / P2 append-only earning ledger.
+  earningLines: defineTable({
+    l1Id: v.id("users"),
+    date: v.number(),
+    period: v.string(), // YYYY-MM
+    type: earningType,
+    planId: v.optional(v.id("productPlans")),
+    amount: v.number(),
+    merchantId: v.optional(v.id("merchants")),
+    status: earningStatus,
+    sourceCodeId: v.optional(v.id("subscriptionCodes")),
+    frozen: v.optional(v.boolean()), // §14.6 owner suspended
+    settledToCompany: v.optional(v.boolean()),
+    note: v.optional(v.string()),
   })
-    .index("by_agent", ["agentId"])
-    .index("by_agent_period", ["agentId", "periodStart"]),
+    .index("by_l1_period", ["l1Id", "period"])
+    .index("by_l1_date", ["l1Id", "date"])
+    .index("by_period", ["period"])
+    .index("by_code", ["sourceCodeId"])
+    .index("by_frozen", ["frozen"])
+    .index("by_merchant", ["merchantId"]),
 
-  regions: defineTable({
-    name: v.string(),
-    code: v.string(),
-  }).index("by_code", ["code"]),
+  // P3 acquisitions are first-class (first-time activations only).
+  acquisitions: defineTable({
+    l1Id: v.id("users"),
+    merchantId: v.id("merchants"),
+    period: v.string(),
+    date: v.number(),
+    sourceType: v.union(v.literal("CODE"), v.literal("SEAT")),
+    sourceId: v.string(),
+  })
+    .index("by_l1_period", ["l1Id", "period"])
+    .index("by_period", ["period"])
+    .index("by_merchant", ["merchantId"]),
 
-  notifications: defineTable({
-    agentId: v.id("agents"),
-    kind: v.string(),
+  // §8.1 cold streak + §9 held balance.
+  l1States: defineTable({
+    l1Id: v.id("users"),
+    consecutiveSub5Months: v.number(),
+    heldBalance: v.number(),
+    lastWarmthState: v.optional(warmthState),
+  }).index("by_l1", ["l1Id"]),
+
+  monthlyL1Summaries: defineTable({
+    l1Id: v.id("users"),
+    period: v.string(),
+    tenureMonth: v.number(),
+    activationCount: v.number(),
+    gross: v.number(),
+    jaminan: v.number(),
+    warmthState: v.optional(warmthState),
+    heldPercent: v.number(),
+    heldAmount: v.number(),
+    releasedAmount: v.number(),
+    l2FeeBase: v.number(),
+    settled: v.boolean(),
+    closedAt: v.number(),
+  })
+    .index("by_l1_period", ["l1Id", "period"])
+    .index("by_period", ["period"])
+    .index("by_l1_settled", ["l1Id", "settled"]),
+
+  monthlyL2Summaries: defineTable({
+    l2Id: v.id("users"),
+    period: v.string(),
+    totalFee: v.number(),
+    settled: v.boolean(),
+  }).index("by_l2_period", ["l2Id", "period"]),
+
+  // §38.1 / §24.10 long-lived per-merchant history (exempt from archival).
+  merchantEarningHistory: defineTable({
+    merchantId: v.id("merchants"),
+    recipientL1Id: v.optional(v.id("users")),
+    date: v.number(),
+    period: v.string(),
+    type: earningType,
+    amount: v.number(),
+    paymentAmount: v.number(),
+    planId: v.id("productPlans"),
+    method: v.union(v.literal("CODE"), v.literal("SELF")),
+    yLabel: v.string(), // Y1 | Y2 | Y3 | Y4+
+  })
+    .index("by_merchant", ["merchantId"])
+    .index("by_merchant_date", ["merchantId", "date"])
+    .index("by_recipient", ["recipientL1Id"]),
+
+  heldRecords: defineTable({
+    l1Id: v.id("users"),
+    period: v.string(),
+    gross: v.number(),
+    heldPercent: v.number(),
+    heldAmount: v.number(),
+    releasedAmount: v.number(),
+    releasedAt: v.optional(v.number()),
+    status: v.union(v.literal("HELD"), v.literal("RELEASED")),
+    settled: v.boolean(),
+    note: v.optional(v.string()),
+  })
+    .index("by_l1_period", ["l1Id", "period"])
+    .index("by_period", ["period"])
+    .index("by_l1_settled", ["l1Id", "settled"]),
+
+  l2EarningLines: defineTable({
+    l2Id: v.id("users"),
+    l1Id: v.id("users"),
+    period: v.string(),
+    l1TenureMonth: v.number(),
+    stage: l2Stage,
+    l1Gross: v.number(),
+    effectiveFeePercent: v.number(),
+    l2Fee: v.number(),
+  })
+    .index("by_l2_period", ["l2Id", "period"])
+    .index("by_period", ["period"])
+    .index("by_l1_period", ["l1Id", "period"]),
+
+  payoutLines: defineTable({
+    userId: v.id("users"),
+    role: role,
+    period: v.string(), // YYYY-MM or YYYY-Www
+    periodStart: v.number(),
+    periodEnd: v.number(),
+    frequency: payoutFrequency,
+    payoutDate: v.number(),
+    gross: v.number(),
+    jaminan: v.number(),
+    held: v.number(),
+    releasedHeld: v.number(),
+    adjustment: v.number(),
+    payable: v.number(),
+    status: payoutStatus,
+    paidAt: v.optional(v.number()),
+    failedReason: v.optional(v.string()),
+  })
+    .index("by_user_period", ["userId", "period"])
+    .index("by_user_date", ["userId", "payoutDate"])
+    .index("by_status", ["status"])
+    .index("by_period", ["period"])
+    .index("by_role_status", ["role", "status"]),
+
+  // §22.4 manual adjustments.
+  adjustments: defineTable({
+    userId: v.id("users"),
+    role: role,
+    period: v.string(),
+    type: v.string(),
+    amount: v.number(), // signed
+    reason: v.string(),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+    consumedByPayoutId: v.optional(v.id("payoutLines")),
+  })
+    .index("by_user", ["userId"])
+    .index("by_user_period", ["userId", "period"])
+    .index("by_period", ["period"]),
+
+  // §20 pricing scheduler.
+  scheduledPriceChanges: defineTable({
+    planId: v.id("productPlans"),
+    oldPrice: v.number(),
+    newPrice: v.number(),
+    effectiveDate: v.number(),
+    applyMode: v.union(
+      v.literal("NEW_SALES_ONLY"),
+      v.literal("ALL_USERS"),
+    ),
+    status: v.union(
+      v.literal("SCHEDULED"),
+      v.literal("APPLIED"),
+      v.literal("SUPERSEDED"),
+    ),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+  })
+    .index("by_status_effective", ["status", "effectiveDate"])
+    .index("by_plan", ["planId"]),
+
+  // §21 single-document configuration.
+  schemeSettings: defineTable({
+    singleton: v.literal("GLOBAL"),
+    guarantee: v.object({
+      enable: v.boolean(),
+      months: v.number(),
+      target: v.number(),
+      minActivations: v.number(),
+      topUp: v.number(),
+    }),
+    warmth: v.object({
+      startAfterMonth: v.number(),
+      warmThreshold: v.number(),
+      warmPayout: v.number(),
+      warmHeld: v.number(),
+      coolPayout: v.number(),
+      coolHeld: v.number(),
+      coldPayout: v.number(),
+      coldHeld: v.number(),
+      coldConsecutive: v.number(),
+      releaseThreshold: v.number(),
+    }),
+    l1Target: v.object({
+      m1_3: v.number(),
+      m4_6: v.number(),
+      m7_9: v.number(),
+      m10_11: v.number(),
+      m12Plus: v.number(),
+    }),
+    l2: v.object({
+      basePercent: v.number(),
+      startMonth: v.number(),
+      includeJaminan: v.boolean(),
+      decayM7_18: v.number(),
+      decayM19_30: v.number(),
+      decayM31_42: v.number(),
+    }),
+    recruitment: v.object({
+      target: v.number(),
+      countOnlyInvited: v.boolean(),
+    }),
+    payout: v.object({
+      l1DefaultFrequency: payoutFrequency,
+      l1WeeklyPayDay: v.number(), // 3 = Wednesday
+      l1MonthlyPayDay: v.number(), // 5
+      l2MonthlyPayDay: v.number(), // 5
+    }),
+    moneyDisplay: v.union(v.literal("ROUNDED"), v.literal("DECIMAL")),
+    renewalIncentivePercent: v.number(),
+    ownershipWindowMonths: v.number(),
+    allowDirectLifetimePurchase: v.boolean(),
+    allowDirectSubscriptionPurchase: v.boolean(),
+    seatLinkExpiryDays: v.number(),
+    codeExpiryDays: v.number(),
+    paymentLinkExpiryHours: v.number(),
+    updatedAt: v.number(),
+  }).index("by_singleton", ["singleton"]),
+
+  discordSettings: defineTable({
+    singleton: v.literal("GLOBAL"),
+    webhookUrl: v.optional(v.string()),
+    inviteUrl: v.optional(v.string()),
+    enabled: v.boolean(),
+    lastTestAt: v.optional(v.number()),
+    lastTestOk: v.optional(v.boolean()),
+  }).index("by_singleton", ["singleton"]),
+
+  // §32 audit log.
+  auditLogEntries: defineTable({
+    timestamp: v.number(),
+    adminId: v.id("users"),
+    action: v.string(),
+    object: v.string(),
+    oldValue: v.optional(v.string()),
+    newValue: v.optional(v.string()),
+    reason: v.optional(v.string()),
+  })
+    .index("by_timestamp", ["timestamp"])
+    .index("by_admin", ["adminId"])
+    .index("by_action", ["action"]),
+
+  announcements: defineTable({
     title: v.string(),
-    body: v.string(),
-    readAt: v.optional(v.number()),
-  }).index("by_agent", ["agentId"]),
+    message: v.string(),
+    audience: v.union(v.literal("ALL"), v.literal("L1"), v.literal("L2")),
+    sendToDiscord: v.boolean(),
+    discordStatus: v.optional(
+      v.union(v.literal("SENT"), v.literal("FAILED"), v.literal("SKIPPED")),
+    ),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+  }).index("by_createdAt", ["createdAt"]),
 
-  // Sliding-window rate limit counters. One row per key.
-  rateLimitCounters: defineTable({
+  // §28 in-app notifications.
+  notifications: defineTable({
+    userId: v.id("users"),
+    type: v.string(),
+    title: v.string(),
+    message: v.string(),
+    read: v.boolean(),
+    createdAt: v.number(),
+    href: v.optional(v.string()),
+  })
+    .index("by_user", ["userId"])
+    .index("by_user_read", ["userId", "read"])
+    .index("by_user_created", ["userId", "createdAt"]),
+
+  // Sliding-window counters for OTP + SDK abuse control (§15.6).
+  rateLimits: defineTable({
     key: v.string(),
     count: v.number(),
     windowStart: v.number(),
   }).index("by_key", ["key"]),
+
+  // Dev-only OTP echo when no email provider is configured (§5.1 fallback).
+  otpDeliveries: defineTable({
+    email: v.string(),
+    code: v.string(),
+    createdAt: v.number(),
+    delivered: v.boolean(),
+  }).index("by_email", ["email"]),
 });
