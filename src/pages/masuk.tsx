@@ -25,7 +25,11 @@ export default function MasukPage() {
   const [busy, setBusy] = useState(false);
   const codeRef = useRef<HTMLInputElement>(null);
 
-  const echo = useQuery(api.otp.devEcho, step === "code" ? { email } : "skip");
+  const [requestedAt, setRequestedAt] = useState(0);
+  const echo = useQuery(
+    api.otp.devEcho,
+    step === "code" ? { email, now: requestedAt } : "skip",
+  );
 
   useEffect(() => {
     if (isAuthenticated && me) {
@@ -45,6 +49,7 @@ export default function MasukPage() {
     setError(null);
     try {
       await signIn("email-otp", { email: email.trim().toLowerCase() });
+      setRequestedAt(Date.now());
       setStep("code");
       setTimeout(() => codeRef.current?.focus(), 60);
     } catch (err) {

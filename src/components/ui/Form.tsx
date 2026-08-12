@@ -1,3 +1,4 @@
+import { ChevronDown } from "lucide-react";
 import { ReactNode, forwardRef } from "react";
 import { cn } from "@/lib/utils";
 
@@ -38,7 +39,17 @@ export const Select = forwardRef<
   HTMLSelectElement,
   React.SelectHTMLAttributes<HTMLSelectElement>
 >(function Select({ className, ...props }, ref) {
-  return <select ref={ref} className={cn(CONTROL, "h-11 appearance-none pr-8", className)} {...props} />;
+  // appearance-none drops the native arrow, so draw one back in.
+  return (
+    <span className="relative block">
+      <select
+        ref={ref}
+        className={cn(CONTROL, "h-11 appearance-none pr-9", className)}
+        {...props}
+      />
+      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-mute" />
+    </span>
+  );
 });
 
 export const Textarea = forwardRef<

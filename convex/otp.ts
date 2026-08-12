@@ -20,9 +20,18 @@ export const record = internalMutation({
   },
 });
 
-/** Dev-only echo. Returns null unless AYO_DEV_OTP_ECHO is explicitly enabled. */
+/**
+ * Echo, off unless AYO_DEV_OTP_ECHO is explicitly enabled.
+ *
+ * While enabled this query hands the current sign-in code to anyone who knows a
+ * registered email address, so it is an authentication bypass by design. Only
+ * codes still inside the OTP's own ten-minute window are returned, which keeps
+ * the exposure to the same window as the code itself.
+ */
+const OTP_TTL_MS = 10 * 60 * 1000;
+
 export const devEcho = query({
-  args: { email: v.string() },
+  args: { email: v.string(), now: v.optional(v.number()) },
   handler: async (ctx, args) => {
     if (process.env.AYO_DEV_OTP_ECHO !== "true") return null;
     const row = await ctx.db
@@ -30,6 +39,7 @@ export const devEcho = query({
       .withIndex("by_email", (q) => q.eq("email", args.email.trim().toLowerCase()))
       .unique();
     if (!row) return null;
+    if (args.now !== undefined && args.now - row.createdAt > OTP_TTL_MS) return null;
     return { code: row.code, createdAt: row.createdAt, delivered: row.delivered };
   },
 });

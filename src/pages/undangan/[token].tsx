@@ -42,16 +42,9 @@ export default function UndanganPage() {
     <main className="mx-auto flex min-h-[100dvh] w-full max-w-sm flex-col px-6 pb-10 pt-[14vh]">
       <Wordmark />
 
-      {!info.valid ? (
-        <>
-          <h1 className="mt-10 text-[28px] font-semibold tracking-[-0.03em]">
-            Undangan tidak berlaku
-          </h1>
-          <p className="mt-2 text-[15px] text-ink-mute">
-            Minta tautan baru dari koordinator Anda.
-          </p>
-        </>
-      ) : done ? (
+      {/* `done` first: the invite flips to USED on success, so inviteInfo goes
+          invalid the moment registration works. */}
+      {done ? (
         <>
           <h1 className="mt-10 text-[28px] font-semibold tracking-[-0.03em]">Akun aktif</h1>
           <p className="mt-2 text-[15px] text-ink-mute">
@@ -60,6 +53,15 @@ export default function UndanganPage() {
           <Link href="/masuk" className="mt-6">
             <Button block>Masuk</Button>
           </Link>
+        </>
+      ) : !info.valid && !busy ? (
+        <>
+          <h1 className="mt-10 text-[28px] font-semibold tracking-[-0.03em]">
+            Undangan tidak berlaku
+          </h1>
+          <p className="mt-2 text-[15px] text-ink-mute">
+            Minta tautan baru dari koordinator Anda.
+          </p>
         </>
       ) : (
         <form onSubmit={submit} className="mt-8">

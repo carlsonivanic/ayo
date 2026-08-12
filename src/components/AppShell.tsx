@@ -5,6 +5,7 @@ import {
   BookMarked,
   CalendarClock,
   ChevronLeft,
+  CircleUserRound,
   CreditCard,
   FileBarChart,
   Home,
@@ -90,8 +91,15 @@ export function AppShell({
   const [moreOpen, setMoreOpen] = useState(false);
 
   const nav = me?.role ? NAV[me.role] : undefined;
-  const isActive = (href: string) =>
+  const matches = (href: string) =>
     href === router.pathname || (href !== "/" && router.pathname.startsWith(`${href}/`));
+  // Section roots ("/admin", "/l1") prefix every sibling, so the most specific
+  // match wins — otherwise Beranda stays lit on every page.
+  const isActive = (href: string) =>
+    matches(href) &&
+    !(nav ? [...nav.primary, ...nav.more] : []).some(
+      (i) => i.href.length > href.length && matches(i.href),
+    );
 
   return (
     <div className="min-h-[100dvh] bg-paper">
@@ -146,6 +154,17 @@ export function AppShell({
                 <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-accent ring-2 ring-paper" />
               )}
             </Link>
+            {/* Phones have no rail, and roles without a "Lainnya" sheet would
+                otherwise have no route to /profil — and so no way to sign out. */}
+            {nav && (
+              <Link
+                href="/profil"
+                aria-label="Profil"
+                className="rounded p-2 text-ink-soft hover:bg-black/[0.04] lg:hidden"
+              >
+                <CircleUserRound className="h-5 w-5" />
+              </Link>
+            )}
           </div>
           {!back && (
             <div className="mx-auto max-w-3xl px-4 pb-3 lg:hidden">

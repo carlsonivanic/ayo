@@ -11,3 +11,7 @@ Convex agent skills for common tasks can be installed by running
 `npx convex ai-files install`.
 
 <!-- convex-ai-end -->
+
+DO NOT BE WORDY. do not put subtitle in every page or every title. 
+
+Keep only important stuff. Be concise.
