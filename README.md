@@ -41,7 +41,7 @@ Set on the Convex deployment (`npx convex env set NAME value`):
 | `RESEND_API_KEY` | OTP email delivery. Without it the code is logged and readable via `AYO_DEV_OTP_ECHO`. |
 | `OTP_EMAIL_FROM` | Sender for OTP mail. |
 | `AYO_DEV_OTP_ECHO` | `true` shows the OTP on the login screen. Development only. |
-| `AYO_PAYMENT_MODE` | `SIMULATED` (default) enables the test checkout button. Set to the gateway name once the webhook is live. |
+| `AYO_TRUST_DEVICE_PAYMENTS` | `true` re-enables the SDK routes that settle on the POS's word alone (`/sdk/self-renew`, `/sdk/lifetime/pay`). Off by default — they have no proof of payment. |
 | `PAYMENT_WEBHOOK_SECRET` | HMAC-SHA256 secret for `/webhooks/payment`. |
 | `AYO_SDK_API_KEY` | Shared secret for the SellMore device endpoints. Falls back to `POS_CLIENT_KEY`. |
 | `LICENSE_PRIVATE_KEY_JWK` | ECDSA P-256 key that signs the offline licence token the POS verifies. |
@@ -76,6 +76,38 @@ POST /sdk/seats             { storeId }
 
 All of them require `X-AYO-API-KEY` (or the legacy `X-Sellmore-Client`) when a
 key is configured. `deviceId` and `storeId` are the same identifier.
+
+## Payment — manual QRIS (interim)
+
+There is no gateway yet. An admin pastes the merchant's **static QRIS** once at
+`/admin/qris`; every payment link injects its own amount into a copy of it
+(EMVCo tag 54, tag 01 flipped to dynamic, CRC16 recomputed — `convex/lib/qris.ts`).
+
+```
+L1 taps Tagih  →  dynamic QRIS shown on the L1's phone
+buyer scans and transfers the exact amount
+L1 uploads the receipt  →  code (or seats) released immediately
+admin reviews at /admin/pembayaran  →  Verified or Rejected
+```
+
+The amount carries a small random suffix (150.000 → 150.347) so one line in the
+bank statement maps to exactly one link. Turn it off in the QRIS settings if the
+merchant account cannot take odd amounts.
+
+Commission is booked **frozen** at upload. Frozen lines are excluded from
+month-end gross and from every payout run, so an unverified payment can never
+pay out. Verifying unfreezes them; rejecting expires unused codes, voids ungifted
+seats, and reverses anything already released with a negative ledger line.
+
+Known limits while this is in place:
+
+- A receipt image is not proof. The unique amount is what makes the bank
+  statement the real check.
+- Verifying a payment **after** its month has been closed leaves the commission
+  out of that close — re-run `/admin/tutup-bulan` for the period.
+- QRIS MDR (~0,7%) is not modelled; reports show the gross price.
+- A static QRIS account may cap per-transaction or monthly volume. Check the
+  cap against the Lifetime prices before selling.
 
 ## Money and periods
 

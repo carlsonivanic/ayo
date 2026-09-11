@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
 import { MutationCtx, internalMutation, mutation } from "./_generated/server";
-import { fail } from "./lib/authz";
+import { fail, requireL1 } from "./lib/authz";
 import { generateCodeString } from "./lib/codegen";
 import { insertEarning } from "./lib/ledger";
 import { pctOf } from "./lib/money";
@@ -11,8 +11,13 @@ import { getSettings } from "./lib/settings";
 import { onLifetimePaid } from "./seats";
 
 // §7.1 / P6 — the single idempotent entry point for money coming in. Called by
-// the gateway webhook, by the SDK for in-app lifetime purchases, and by the
-// simulated checkout when no gateway is configured.
+// the gateway webhook and, while settlement is manual, by the L1 uploading the
+// buyer's QRIS transfer receipt.
+//
+// Manual settlement releases the code immediately so the L1 is never blocked,
+// and books the commission FROZEN. Frozen lines are excluded from month-end
+// gross and from every payout run, so an unverified payment can never pay out.
+// An admin verifying the transfer unfreezes them; rejecting reverses them.
 
 async function newCode(ctx: MutationCtx): Promise<string> {
   for (let attempt = 0; attempt < 8; attempt++) {
@@ -55,9 +60,15 @@ async function settle(
     idempotencyKey?: string;
     buyerStoreId?: string;
     buyerStoreName?: string;
+    /** PENDING = a human still has to confirm the money arrived. */
+    verification?: "PENDING" | "VERIFIED";
+    proofStorageId?: Id<"_storage">;
+    proofUploadedBy?: Id<"users">;
+    proofNote?: string;
   },
 ): Promise<PaymentResult> {
   const now = Date.now();
+  const provisional = opts.verification === "PENDING";
 
   if (link.status === "PAID") {
     // Replayed webhook — the first delivery already did the work (P6).
@@ -78,6 +89,11 @@ async function settle(
     gatewayRef: opts.gatewayRef,
     idempotencyKey: opts.idempotencyKey,
     buyerSellMoreStoreId: opts.buyerStoreId ?? link.buyerSellMoreStoreId,
+    verification: opts.verification,
+    proofStorageId: opts.proofStorageId,
+    proofUploadedAt: opts.proofStorageId ? now : undefined,
+    proofUploadedBy: opts.proofUploadedBy,
+    proofNote: opts.proofNote,
   });
 
   if (link.l1Id) await markFirstPayment(ctx, link.l1Id, now);
@@ -108,6 +124,8 @@ async function settle(
         status: "PENDING",
         planId: plan._id,
         sourceCodeId: codeId,
+        sourceLinkId: link._id,
+        frozen: provisional || undefined,
       });
       await notify(
         ctx,
@@ -127,16 +145,33 @@ async function settle(
       );
     }
   } else {
-    await onLifetimePaid(ctx, { ...link, status: "PAID" }, plan, opts.buyerStoreId, opts.buyerStoreName);
+    await onLifetimePaid(
+      ctx,
+      { ...link, status: "PAID" },
+      plan,
+      opts.buyerStoreId,
+      opts.buyerStoreName,
+      provisional,
+    );
   }
 
-  await notifyAdmins(
-    ctx,
-    "PAYMENT_SUCCESS",
-    "Pembayaran berhasil",
-    `${plan.name} — ${link.amount}.`,
-    "/admin/laporan",
-  );
+  if (provisional) {
+    await notifyAdmins(
+      ctx,
+      "PROOF_UPLOADED",
+      "Bukti bayar menunggu verifikasi",
+      `${plan.name} — ${link.qrisAmount ?? link.amount}.`,
+      "/admin/pembayaran",
+    );
+  } else {
+    await notifyAdmins(
+      ctx,
+      "PAYMENT_SUCCESS",
+      "Pembayaran berhasil",
+      `${plan.name} — ${link.amount}.`,
+      "/admin/laporan",
+    );
+  }
 
   return { ok: true, code, linkId: link._id };
 }
@@ -162,7 +197,8 @@ export const processPaymentByToken = internalMutation({
         .first();
       if (seen && seen._id !== link._id) return { ok: false, reason: "DUPLICATE_KEY" };
     }
-    return await settle(ctx, link, args);
+    // A gateway callback is authoritative — nothing for an admin to confirm.
+    return await settle(ctx, link, { ...args, verification: "VERIFIED" });
   },
 });
 
@@ -192,26 +228,48 @@ export const failPaymentByToken = internalMutation({
   },
 });
 
+/** Upload target for the transfer receipt. Storage ids are useless on their own. */
+export const generateProofUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requireL1(ctx);
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
 /**
- * Checkout without a payment gateway. Enabled only while AYO_PAYMENT_MODE is
- * SIMULATED (the default for a fresh deployment); once a real gateway is
- * configured the webhook is the only way a link can become PAID.
+ * Manual settlement: the L1 watched the buyer scan the QRIS and uploads the
+ * receipt. The code is released now; an admin confirms the money separately.
+ *
+ * Only the L1 who owns the link can do this, only once, and only while the
+ * link is still open — an expired link has to be recreated at current pricing.
  */
-export const simulateCheckout = mutation({
-  args: { token: v.string(), storeId: v.optional(v.string()) },
+export const submitPaymentProof = mutation({
+  args: {
+    linkId: v.id("paymentLinks"),
+    storageId: v.id("_storage"),
+    note: v.optional(v.string()),
+    storeId: v.optional(v.string()),
+  },
   handler: async (ctx, args): Promise<PaymentResult> => {
-    if ((process.env.AYO_PAYMENT_MODE ?? "SIMULATED") !== "SIMULATED") {
-      fail("SIMULATION_DISABLED", "Pembayaran simulasi dimatikan.");
-    }
-    const link = await ctx.db
-      .query("paymentLinks")
-      .withIndex("by_token", (q) => q.eq("token", args.token))
-      .unique();
+    const l1 = await requireL1(ctx);
+    const link = await ctx.db.get("paymentLinks", args.linkId);
     if (!link) fail("NOT_FOUND", "Tautan tidak ditemukan.");
+    if (link.l1Id !== l1._id) fail("FORBIDDEN", "Bukan tautan Anda.");
+    if (link.status === "PAID") fail("ALREADY_PAID", "Bukti sudah dikirim.");
+    if (link.status !== "SHARED") fail("LINK_CLOSED", "Tautan sudah tidak berlaku.");
+    if (link.expiresAt < Date.now()) {
+      await ctx.db.patch("paymentLinks", link._id, { status: "EXPIRED" });
+      fail("LINK_EXPIRED", "Tautan kedaluwarsa. Buat tautan baru.");
+    }
+
     return await settle(ctx, link, {
-      gatewayRef: `SIM-${Date.now()}`,
-      idempotencyKey: `SIM-${link._id}`,
+      verification: "PENDING",
+      proofStorageId: args.storageId,
+      proofUploadedBy: l1._id,
+      proofNote: args.note,
       buyerStoreId: args.storeId,
+      idempotencyKey: `MANUAL-${link._id}`,
     });
   },
 });

@@ -14,7 +14,13 @@ import { currentPeriod, date, dateTime } from "@/lib/format";
 import { useMoney } from "@/lib/useMoney";
 import { errorMessage } from "@/lib/utils";
 
-type Tab = "pembayaran" | "kode";
+type Tab = "verifikasi" | "riwayat" | "kode";
+
+const VERIFICATION_PILL = {
+  PENDING: { tone: "warn", label: "Menunggu" },
+  VERIFIED: { tone: "good", label: "Terverifikasi" },
+  REJECTED: { tone: "warn", label: "Ditolak" },
+} as const;
 
 export default function PembayaranPage() {
   return (
@@ -25,23 +31,23 @@ export default function PembayaranPage() {
 }
 
 function Body() {
-  const [tab, setTab] = useState<Tab>("pembayaran");
+  const [tab, setTab] = useState<Tab>("verifikasi");
   const [period, setPeriod] = useState(currentPeriod());
+  const queue = useQuery(
+    api.admin.payments.awaitingVerification,
+    tab === "verifikasi" ? {} : "skip",
+  );
   const payments = useQuery(
     api.admin.payments.list,
-    tab === "pembayaran" ? { period } : "skip",
+    tab === "riwayat" ? { period } : "skip",
   );
   const expired = useQuery(api.admin.payments.expiredCodes, tab === "kode" ? {} : "skip");
-  const refund = useMutation(api.admin.ops.processManualRefundException);
   const reissue = useMutation(api.admin.ops.reissueExpiredCode);
   const toast = useToast();
   const fmt = useMoney();
 
   const [selected, setSelected] = useState<string | null>(null);
-  const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  const active = payments?.find((p) => p.id === selected);
+  const active = [...(queue ?? []), ...(payments ?? [])].find((p) => p.id === selected);
 
   return (
     <AppShell title="Pembayaran">
@@ -49,12 +55,33 @@ function Body() {
         value={tab}
         onChange={setTab}
         options={[
-          { value: "pembayaran", label: "Pembayaran" },
+          { value: "verifikasi", label: `Verifikasi${queue?.length ? ` (${queue.length})` : ""}` },
+          { value: "riwayat", label: "Riwayat" },
           { value: "kode", label: "Kode kedaluwarsa" },
         ]}
       />
 
-      {tab === "pembayaran" && (
+      {tab === "verifikasi" &&
+        (!queue ? (
+          <Loading rows={5} />
+        ) : queue.length === 0 ? (
+          <Empty title="Tidak ada bukti bayar yang menunggu." />
+        ) : (
+          <Card>
+            {queue.map((payment) => (
+              <Row
+                key={payment.id}
+                label={payment.planName}
+                sub={`${payment.sellerName} · ${dateTime(payment.proofUploadedAt)}`}
+                value={fmt(payment.qrisAmount)}
+                valueSub={<Pill tone="warn">Menunggu</Pill>}
+                onClick={() => setSelected(payment.id)}
+              />
+            ))}
+          </Card>
+        ))}
+
+      {tab === "riwayat" && (
         <>
           <div className="mb-4 flex justify-end">
             <PeriodPicker value={period} onChange={setPeriod} />
@@ -71,7 +98,15 @@ function Body() {
                   label={payment.planName}
                   sub={`${payment.sellerName} · ${dateTime(payment.paidAt)}`}
                   value={fmt(payment.amount)}
-                  valueSub={payment.refunded ? <Pill tone="warn">Refund</Pill> : undefined}
+                  valueSub={
+                    payment.refunded ? (
+                      <Pill tone="warn">Refund</Pill>
+                    ) : payment.verification ? (
+                      <Pill tone={VERIFICATION_PILL[payment.verification].tone}>
+                        {VERIFICATION_PILL[payment.verification].label}
+                      </Pill>
+                    ) : undefined
+                  }
                   onClick={() => setSelected(payment.id)}
                 />
               ))}
@@ -119,68 +154,168 @@ function Body() {
           </Card>
         ))}
 
-      <Sheet open={!!active} onClose={() => setSelected(null)} title={active?.planName ?? ""}>
-        {active && (
-          <div className="space-y-5">
-            <div>
-              <p className="eyebrow">{active.sellerName}</p>
-              <p className="num mt-1 text-[26px] font-semibold">{fmt(active.amount)}</p>
-              <p className="mt-1 text-[13px] text-ink-mute">{dateTime(active.paidAt)}</p>
-            </div>
+      {active && <Detail payment={active} onClose={() => setSelected(null)} />}
+    </AppShell>
+  );
+}
 
-            {active.codes.length > 0 && (
-              <div className="space-y-2">
-                <p className="eyebrow">Kode</p>
-                {active.codes.map((code) => (
-                  <div
-                    key={code.id}
-                    className="flex items-center justify-between rounded border border-line px-3 py-2"
-                  >
-                    <span className="num text-[14px] tracking-[0.06em]">{code.code}</span>
-                    <span className="text-[13px] text-ink-mute">
-                      {code.storeName ?? code.status}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
+type Payment = NonNullable<
+  ReturnType<typeof useQuery<typeof api.admin.payments.list>>
+>[number];
 
-            {!active.refunded && (
-              <div className="space-y-3 border-t border-line pt-4">
-                <Field
-                  label="Alasan refund"
-                  hint="Refund adalah pengecualian manual. Komisi dibalik dengan baris baru."
-                >
-                  <Input value={reason} onChange={(e) => setReason(e.target.value)} />
-                </Field>
-                <Button
-                  variant="danger"
-                  block
-                  disabled={busy || !reason.trim()}
-                  onClick={async () => {
-                    setBusy(true);
-                    try {
-                      await refund({
-                        paymentLinkId: active.id as Id<"paymentLinks">,
-                        reason,
-                      });
-                      toast("Refund dicatat");
-                      setSelected(null);
-                      setReason("");
-                    } catch (err) {
-                      toast(errorMessage(err), "warn");
-                    } finally {
-                      setBusy(false);
-                    }
-                  }}
-                >
-                  Catat refund
-                </Button>
-              </div>
+function Detail({ payment, onClose }: { payment: Payment; onClose: () => void }) {
+  const verify = useMutation(api.admin.payments.verifyPayment);
+  const reject = useMutation(api.admin.payments.rejectPayment);
+  const refund = useMutation(api.admin.ops.processManualRefundException);
+  const toast = useToast();
+  const fmt = useMoney();
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const pending = payment.verification === "PENDING";
+
+  async function run(action: () => Promise<unknown>, done: string) {
+    setBusy(true);
+    try {
+      await action();
+      toast(done);
+      onClose();
+      setReason("");
+    } catch (err) {
+      toast(errorMessage(err), "warn");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Sheet open onClose={onClose} title={payment.planName}>
+      <div className="space-y-5">
+        <div>
+          <p className="eyebrow">{payment.sellerName}</p>
+          <p className="num mt-1 text-[26px] font-semibold">{fmt(payment.amount)}</p>
+          <p className="mt-1 text-[13px] text-ink-mute">
+            Ditransfer {fmt(payment.qrisAmount)} · {dateTime(payment.paidAt)}
+          </p>
+        </div>
+
+        {payment.proofUrl && (
+          <div>
+            <p className="eyebrow mb-2">Bukti bayar</p>
+            <a href={payment.proofUrl} target="_blank" rel="noreferrer" className="press block">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={payment.proofUrl}
+                alt="Bukti bayar"
+                className="max-h-80 w-full rounded border border-line object-contain"
+              />
+            </a>
+            {payment.proofNote && (
+              <p className="mt-2 text-[13px] text-ink-soft">{payment.proofNote}</p>
             )}
           </div>
         )}
-      </Sheet>
-    </AppShell>
+
+        {payment.codes.length > 0 && (
+          <div className="space-y-2">
+            <p className="eyebrow">Kode</p>
+            {payment.codes.map((code) => (
+              <div
+                key={code.id}
+                className="flex items-center justify-between rounded border border-line px-3 py-2"
+              >
+                <span className="num text-[14px] tracking-[0.06em]">{code.code}</span>
+                <span className="text-[13px] text-ink-mute">
+                  {code.storeName ?? code.status}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {payment.seats.length > 0 && (
+          <div className="space-y-2">
+            <p className="eyebrow">Kursi</p>
+            {payment.seats.map((seat) => (
+              <div
+                key={seat.id}
+                className="flex items-center justify-between rounded border border-line px-3 py-2"
+              >
+                <span className="text-[14px]">Kursi {seat.seatIndex}</span>
+                <span className="text-[13px] text-ink-mute">{seat.status}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {payment.rejectionReason && (
+          <p className="rounded border border-line bg-black/[0.015] px-3 py-2 text-[13px] text-ink-soft">
+            Ditolak: {payment.rejectionReason}
+          </p>
+        )}
+
+        {pending && (
+          <div className="space-y-3 border-t border-line pt-4">
+            <Button
+              block
+              disabled={busy}
+              onClick={() =>
+                void run(
+                  () => verify({ linkId: payment.id as Id<"paymentLinks"> }),
+                  "Pembayaran terverifikasi",
+                )
+              }
+            >
+              Dana diterima
+            </Button>
+            <Field label="Alasan tolak" hint="Kode dimatikan dan komisi dibatalkan.">
+              <Input value={reason} onChange={(e) => setReason(e.target.value)} />
+            </Field>
+            <Button
+              variant="danger"
+              block
+              disabled={busy || reason.trim().length < 4}
+              onClick={() =>
+                void run(
+                  () =>
+                    reject({ linkId: payment.id as Id<"paymentLinks">, reason }),
+                  "Bukti bayar ditolak",
+                )
+              }
+            >
+              Tolak bukti
+            </Button>
+          </div>
+        )}
+
+        {!pending && !payment.refunded && (
+          <div className="space-y-3 border-t border-line pt-4">
+            <Field
+              label="Alasan refund"
+              hint="Refund adalah pengecualian manual. Komisi dibalik dengan baris baru."
+            >
+              <Input value={reason} onChange={(e) => setReason(e.target.value)} />
+            </Field>
+            <Button
+              variant="danger"
+              block
+              disabled={busy || !reason.trim()}
+              onClick={() =>
+                void run(
+                  () =>
+                    refund({
+                      paymentLinkId: payment.id as Id<"paymentLinks">,
+                      reason,
+                    }),
+                  "Refund dicatat",
+                )
+              }
+            >
+              Catat refund
+            </Button>
+          </div>
+        )}
+      </div>
+    </Sheet>
   );
 }

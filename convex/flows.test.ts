@@ -10,13 +10,29 @@ import { periodOf, shiftPeriod } from "./lib/period";
 
 const modules = import.meta.glob("./**/*.ts");
 
+// A structurally valid static QRIS (CRC checked) so createPaymentLink can run.
+const TEST_QRIS =
+  "00020101021126400014ID.CO.QRIS.WWW01189360000910000000015204581253033605802ID5908AYO TEST6007JAKARTA63045904";
+
 type Ctx = Awaited<ReturnType<typeof setup>>;
 
 async function setup() {
   const t = convexTest(schema, modules);
 
   const ids = await t.run(async (ctx) => {
-    await ctx.db.insert("schemeSettings", { ...DEFAULT_SETTINGS, updatedAt: Date.now() });
+    await ctx.db.insert("schemeSettings", {
+      ...DEFAULT_SETTINGS,
+      qris: {
+        enabled: true,
+        staticPayload: TEST_QRIS,
+        merchantName: "AYO TEST",
+        // Off in tests so the amounts stay exactly the spec's figures.
+        uniqueAmountEnabled: false,
+        uniqueAmountMax: 999,
+        proofRequired: true,
+      },
+      updatedAt: Date.now(),
+    });
     for (const plan of DEFAULT_PLANS) await ctx.db.insert("productPlans", plan);
 
     const now = Date.now();
@@ -71,12 +87,22 @@ async function setup() {
 
 const asUser = (c: Ctx, userId: Id<"users">) => c.t.withIdentity({ subject: userId });
 
-/** Create a link as an L1, pay it, and return the generated code. */
+/** Stand-in for the receipt photo an L1 uploads. */
+async function storeProof(c: Ctx) {
+  return await c.t.run(async (ctx) =>
+    ctx.storage.store(new Blob(["bukti"], { type: "image/png" })),
+  );
+}
+
+/** Create a link as an L1, settle it with a receipt, and return the code. */
 async function sellSubscription(c: Ctx, sellerId: Id<"users">) {
   const link = await asUser(c, sellerId).mutation(api.sell.createPaymentLink, {
     planId: c.monthlyId,
   });
-  const result = await c.t.mutation(api.payments.simulateCheckout, { token: link.token });
+  const result = await asUser(c, sellerId).mutation(api.payments.submitPaymentProof, {
+    linkId: link.linkId,
+    storageId: await storeProof(c),
+  });
   if (!result.ok) throw new Error(result.reason);
   return { token: link.token, code: result.code!, linkId: result.linkId };
 }
@@ -103,11 +129,15 @@ describe("subscription sell flow (§4 / §7.1)", () => {
     });
   });
 
-  test("a link can only be paid once", async () => {
+  test("a link can only be settled once", async () => {
     const c = await setup();
-    const { token } = await sellSubscription(c, c.sellerId);
-    const again = await c.t.mutation(api.payments.simulateCheckout, { token });
-    expect(again.ok).toBe(true); // idempotent replay, not a second sale
+    const { linkId } = await sellSubscription(c, c.sellerId);
+    await expect(
+      asUser(c, c.sellerId).mutation(api.payments.submitPaymentProof, {
+        linkId,
+        storageId: await storeProof(c),
+      }),
+    ).rejects.toThrow();
 
     await c.t.run(async (ctx) => {
       const codes = await ctx.db.query("subscriptionCodes").collect();
@@ -479,3 +509,149 @@ async function adminId(c: Ctx): Promise<Id<"users">> {
     });
   });
 }
+
+describe("manual QRIS settlement", () => {
+  async function adminOf(c: Ctx) {
+    return await c.t.run(async (ctx) =>
+      ctx.db.insert("users", {
+        name: "Admin",
+        email: "admin@test",
+        role: "ADMIN" as const,
+        status: "ACTIVE" as const,
+        registeredAt: Date.now(),
+        approvedAt: Date.now(),
+      }),
+    );
+  }
+
+  const linesOf = (c: Ctx, l1Id: Id<"users">) =>
+    c.t.run(async (ctx) =>
+      ctx.db
+        .query("earningLines")
+        .withIndex("by_l1_period", (q) => q.eq("l1Id", l1Id))
+        .collect(),
+    );
+
+  test("the link carries a dynamic QRIS for its own amount", async () => {
+    const c = await setup();
+    const link = await asUser(c, c.sellerId).mutation(api.sell.createPaymentLink, {
+      planId: c.monthlyId,
+    });
+    expect(link.qrisAmount).toBe(link.amount);
+    expect(link.qrisPayload).toContain(String(link.amount));
+  });
+
+  test("uploading a receipt releases the code but freezes the commission", async () => {
+    const c = await setup();
+    const { code } = await sellSubscription(c, c.sellerId);
+    expect(code).toMatch(/^SM-/);
+
+    const lines = await linesOf(c, c.sellerId);
+    expect(lines).toHaveLength(1);
+    expect(lines[0].frozen).toBe(true);
+  });
+
+  test("a frozen commission cannot reach a payout", async () => {
+    const c = await setup();
+    const { code } = await sellSubscription(c, c.sellerId);
+    await c.t.mutation(internal.sdk.redeemSubscriptionCode, {
+      code,
+      storeId: "STORE-FROZEN",
+    });
+
+    const lines = await linesOf(c, c.sellerId);
+    expect(lines[0].status).toBe("CONFIRMED"); // redemption resolved it...
+    expect(lines[0].frozen).toBe(true); // ...but the money is still unverified
+  });
+
+  test("verifying unfreezes every line the payment produced", async () => {
+    const c = await setup();
+    const { linkId } = await sellSubscription(c, c.sellerId);
+    const adminId = await adminOf(c);
+
+    await asUser(c, adminId).mutation(api.admin.payments.verifyPayment, { linkId });
+
+    const lines = await linesOf(c, c.sellerId);
+    expect(lines[0].frozen).toBeUndefined();
+    await c.t.run(async (ctx) => {
+      const link = await ctx.db.get("paymentLinks", linkId);
+      expect(link?.verification).toBe("VERIFIED");
+    });
+  });
+
+  test("rejecting kills the unused code and leaves the commission unpayable", async () => {
+    const c = await setup();
+    const { linkId, code } = await sellSubscription(c, c.sellerId);
+    const adminId = await adminOf(c);
+
+    const result = await asUser(c, adminId).mutation(api.admin.payments.rejectPayment, {
+      linkId,
+      reason: "Dana tidak masuk",
+    });
+    expect(result.redeemedCodes).toBe(0);
+
+    await c.t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("subscriptionCodes")
+        .withIndex("by_code", (q) => q.eq("code", code))
+        .unique();
+      expect(row?.status).toBe("EXPIRED");
+    });
+
+    const lines = await linesOf(c, c.sellerId);
+    expect(lines).toHaveLength(1); // nothing reversed — it never became payable
+    expect(lines[0].frozen).toBe(true);
+  });
+
+  test("rejecting after verification reverses the released commission", async () => {
+    const c = await setup();
+    const { linkId } = await sellSubscription(c, c.sellerId);
+    const adminId = await adminOf(c);
+
+    await asUser(c, adminId).mutation(api.admin.payments.verifyPayment, { linkId });
+    const result = await asUser(c, adminId).mutation(api.admin.payments.rejectPayment, {
+      linkId,
+      reason: "Bukti dipalsukan",
+    });
+    expect(result.reversed).toBe(1);
+
+    const lines = await linesOf(c, c.sellerId);
+    expect(lines.reduce((sum, l) => sum + l.amount, 0)).toBe(0);
+  });
+
+  test("a rejected lifetime payment voids its seats", async () => {
+    const c = await setup();
+    const link = await asUser(c, c.sellerId).mutation(api.sell.createPaymentLink, {
+      planId: c.duoId,
+    });
+    await asUser(c, c.sellerId).mutation(api.payments.submitPaymentProof, {
+      linkId: link.linkId,
+      storageId: await storeProof(c),
+    });
+    const adminId = await adminOf(c);
+
+    await asUser(c, adminId).mutation(api.admin.payments.rejectPayment, {
+      linkId: link.linkId,
+      reason: "Dana tidak masuk",
+    });
+
+    await c.t.run(async (ctx) => {
+      const seats = await ctx.db.query("lifetimeSeats").collect();
+      expect(seats).toHaveLength(2);
+      expect(seats.every((s) => s.status === "VOID")).toBe(true);
+    });
+  });
+
+  test("only the L1 who owns the link can settle it", async () => {
+    const c = await setup();
+    const link = await asUser(c, c.sellerId).mutation(api.sell.createPaymentLink, {
+      planId: c.monthlyId,
+    });
+    await expect(
+      asUser(c, c.otherId).mutation(api.payments.submitPaymentProof, {
+        linkId: link.linkId,
+        storageId: await storeProof(c),
+      }),
+    ).rejects.toThrow();
+  });
+});

@@ -13,13 +13,19 @@ import { randomToken } from "./lib/tokens";
 // Single (1 seat) and Duo (2 seats), and a blocked seat always returns to the
 // buyer's pool rather than being refunded.
 
-/** Called from the payment path once a lifetime purchase settles. */
+/**
+ * Called from the payment path once a lifetime purchase settles.
+ *
+ * `provisional` means the payment is still awaiting an admin's verification,
+ * so the commission is booked frozen and stays out of every payout run.
+ */
 export async function onLifetimePaid(
   ctx: MutationCtx,
   link: Doc<"paymentLinks">,
   plan: Doc<"productPlans">,
   buyerStoreId: string | undefined,
   buyerStoreName: string | undefined,
+  provisional = false,
 ): Promise<{ seatIds: Id<"lifetimeSeats">[] }> {
   const now = Date.now();
   const seatCount = Math.max(1, plan.seatCount);
@@ -35,6 +41,8 @@ export async function onLifetimePaid(
       amount: commission,
       status: "CONFIRMED",
       planId: plan._id,
+      sourceLinkId: link._id,
+      frozen: provisional || undefined,
     });
     await notify(
       ctx,
@@ -82,6 +90,7 @@ export async function activateSeat(
   storeName: string | undefined,
 ): Promise<{ activated: boolean; reason?: string }> {
   if (seat.status === "ACTIVATED") return { activated: false, reason: "SEAT_USED" };
+  if (seat.status === "VOID") return { activated: false, reason: "SEAT_VOID" };
 
   const existing = await ctx.db
     .query("merchants")
@@ -173,6 +182,7 @@ export async function issueSeatLink(
   seat: Doc<"lifetimeSeats">,
 ): Promise<{ token: string; expiresAt: number }> {
   if (seat.status === "ACTIVATED") fail("SEAT_USED", "Kursi sudah dipakai.");
+  if (seat.status === "VOID") fail("SEAT_VOID", "Kursi dibatalkan.");
   const settings = await getSettings(ctx);
   const token = randomToken(24);
   const expiresAt = addDays(Date.now(), settings.seatLinkExpiryDays);

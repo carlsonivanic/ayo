@@ -32,6 +32,7 @@ import type * as lib_mobile from "../lib/mobile.js";
 import type * as lib_money from "../lib/money.js";
 import type * as lib_notify from "../lib/notify.js";
 import type * as lib_period from "../lib/period.js";
+import type * as lib_qris from "../lib/qris.js";
 import type * as lib_settings from "../lib/settings.js";
 import type * as lib_tokens from "../lib/tokens.js";
 import type * as maintenance from "../maintenance.js";
@@ -81,6 +82,7 @@ declare const fullApi: ApiFromModules<{
   "lib/money": typeof lib_money;
   "lib/notify": typeof lib_notify;
   "lib/period": typeof lib_period;
+  "lib/qris": typeof lib_qris;
   "lib/settings": typeof lib_settings;
   "lib/tokens": typeof lib_tokens;
   maintenance: typeof maintenance;

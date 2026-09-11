@@ -31,6 +31,13 @@ export const productCategory = v.union(
   v.literal("SUBSCRIPTION"),
   v.literal("LIFETIME"),
 );
+// Manual QRIS review state. The code is released on upload; an admin confirms
+// the transfer afterwards, and a rejection reverses everything it produced.
+export const paymentVerification = v.union(
+  v.literal("PENDING"),
+  v.literal("VERIFIED"),
+  v.literal("REJECTED"),
+);
 export const earningType = v.union(
   v.literal("NEW_SALES"),
   v.literal("RECURRING"),
@@ -203,13 +210,32 @@ export default defineSchema({
     buyerMerchantId: v.optional(v.id("merchants")),
     gatewayRef: v.optional(v.string()),
     refundedAt: v.optional(v.number()),
+
+    // Manual QRIS settlement (§13 interim, until a gateway is wired up).
+    // `qrisPayload` is the dynamic payload rendered for the buyer; `qrisAmount`
+    // is what they actually transfer — `amount` plus a per-link unique suffix
+    // so an admin can match one payment to exactly one link in the mutasi.
+    qrisPayload: v.optional(v.string()),
+    qrisAmount: v.optional(v.number()),
+    proofStorageId: v.optional(v.id("_storage")),
+    proofUploadedAt: v.optional(v.number()),
+    proofUploadedBy: v.optional(v.id("users")),
+    proofNote: v.optional(v.string()),
+    // Absent on gateway-settled links; present whenever a human must review.
+    verification: v.optional(paymentVerification),
+    verifiedAt: v.optional(v.number()),
+    verifiedBy: v.optional(v.id("users")),
+    rejectedAt: v.optional(v.number()),
+    rejectionReason: v.optional(v.string()),
   })
     .index("by_token", ["token"])
     .index("by_l1", ["l1Id"])
     .index("by_l1_created", ["l1Id", "createdAt"])
     .index("by_status_expiry", ["status", "expiresAt"])
     .index("by_paidAt", ["paidAt"])
-    .index("by_idempotency", ["idempotencyKey"]),
+    .index("by_idempotency", ["idempotencyKey"])
+    .index("by_verification", ["verification", "proofUploadedAt"])
+    .index("by_qris_amount", ["qrisAmount", "status"]),
 
   // §5 codes — subscription products only.
   subscriptionCodes: defineTable({
@@ -249,6 +275,7 @@ export default defineSchema({
       v.literal("POOLED"),
       v.literal("GIFT_LINK_ACTIVE"),
       v.literal("ACTIVATED"),
+      v.literal("VOID"), // payment proof rejected — seat can never be gifted
     ),
     assignedToMerchantId: v.optional(v.id("merchants")),
     activationLinkToken: v.optional(v.string()),
@@ -276,7 +303,10 @@ export default defineSchema({
     merchantId: v.optional(v.id("merchants")),
     status: earningStatus,
     sourceCodeId: v.optional(v.id("subscriptionCodes")),
-    frozen: v.optional(v.boolean()), // §14.6 owner suspended
+    // Set when the line came from one payment, so an admin verifying or
+    // rejecting that payment can find everything it produced.
+    sourceLinkId: v.optional(v.id("paymentLinks")),
+    frozen: v.optional(v.boolean()), // §14.6 owner suspended, or payment unverified
     settledToCompany: v.optional(v.boolean()),
     note: v.optional(v.string()),
   })
@@ -284,6 +314,7 @@ export default defineSchema({
     .index("by_l1_date", ["l1Id", "date"])
     .index("by_period", ["period"])
     .index("by_code", ["sourceCodeId"])
+    .index("by_link", ["sourceLinkId"])
     .index("by_frozen", ["frozen"])
     .index("by_merchant", ["merchantId"]),
 
@@ -489,6 +520,19 @@ export default defineSchema({
       l1MonthlyPayDay: v.number(), // 5
       l2MonthlyPayDay: v.number(), // 5
     }),
+    // Manual QRIS settlement. `staticPayload` is the merchant's own static
+    // QRIS; every payment link injects its own amount into a copy of it.
+    qris: v.optional(
+      v.object({
+        enabled: v.boolean(),
+        staticPayload: v.optional(v.string()),
+        merchantName: v.optional(v.string()),
+        uniqueAmountEnabled: v.boolean(),
+        uniqueAmountMax: v.number(), // random 1..max rupiah added to the price
+        proofRequired: v.boolean(),
+        instructions: v.optional(v.string()),
+      }),
+    ),
     moneyDisplay: v.union(v.literal("ROUNDED"), v.literal("DECIMAL")),
     renewalIncentivePercent: v.number(),
     ownershipWindowMonths: v.number(),

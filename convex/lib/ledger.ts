@@ -18,6 +18,7 @@ export async function insertEarning(
     planId?: Id<"productPlans">;
     merchantId?: Id<"merchants">;
     sourceCodeId?: Id<"subscriptionCodes">;
+    sourceLinkId?: Id<"paymentLinks">;
     frozen?: boolean;
     note?: string;
   },
@@ -32,6 +33,7 @@ export async function insertEarning(
     merchantId: args.merchantId,
     status: args.status,
     sourceCodeId: args.sourceCodeId,
+    sourceLinkId: args.sourceLinkId,
     frozen: args.frozen,
     note: args.note,
   });

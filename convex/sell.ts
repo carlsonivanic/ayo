@@ -3,8 +3,10 @@ import { Doc, Id } from "./_generated/dataModel";
 import { MutationCtx, mutation, query } from "./_generated/server";
 import { fail, requireActive, requireL1 } from "./lib/authz";
 import { pctOf } from "./lib/money";
+import { convertQRIS } from "./lib/qris";
 import { getSettings } from "./lib/settings";
 import { randomToken } from "./lib/tokens";
+import { issueSeatLink } from "./seats";
 
 // §4 sell flow. The L1 never enters merchant data — a link is created, shared on
 // WhatsApp, and everything else resolves from the payment and the redemption.
@@ -17,6 +19,33 @@ async function ensureProfileComplete(ctx: MutationCtx, userId: Id<"users">) {
   return profile?.completed ?? false;
 }
 
+/**
+ * A payment amount that belongs to exactly one open link.
+ *
+ * Manual QRIS gives us no reference field, so the amount itself is the
+ * reference: a small random suffix on the price lets an admin tie one line in
+ * the bank mutasi to one link. Collisions are only checked against links that
+ * are still open, which is the only window where two could be confused.
+ */
+async function uniquePaymentAmount(
+  ctx: MutationCtx,
+  base: number,
+  max: number,
+): Promise<number> {
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const suffix = 1 + Math.floor(Math.random() * max);
+    const candidate = base + suffix;
+    const clash = await ctx.db
+      .query("paymentLinks")
+      .withIndex("by_qris_amount", (q) =>
+        q.eq("qrisAmount", candidate).eq("status", "SHARED"),
+      )
+      .first();
+    if (!clash) return candidate;
+  }
+  return base; // give up on uniqueness rather than block the sale
+}
+
 export const createPaymentLink = mutation({
   args: { planId: v.id("productPlans") },
   handler: async (ctx, args) => {
@@ -25,7 +54,24 @@ export const createPaymentLink = mutation({
     if (!plan || !plan.active) fail("NOT_FOUND", "Paket tidak tersedia.");
     const settings = await getSettings(ctx);
 
+    const qris = settings.qris;
+    if (!qris?.enabled || !qris.staticPayload) {
+      fail("QRIS_NOT_CONFIGURED", "QRIS pembayaran belum disiapkan admin.");
+    }
+
+    const qrisAmount = qris.uniqueAmountEnabled
+      ? await uniquePaymentAmount(ctx, plan.price, Math.max(1, qris.uniqueAmountMax))
+      : plan.price;
+
+    let qrisPayload: string;
+    try {
+      qrisPayload = convertQRIS(qris.staticPayload, qrisAmount);
+    } catch {
+      fail("QRIS_INVALID", "Payload QRIS admin tidak valid.");
+    }
+
     const now = Date.now();
+    const expiresAt = now + settings.paymentLinkExpiryHours * 60 * 60 * 1000;
     const token = randomToken(20);
     const linkId = await ctx.db.insert("paymentLinks", {
       l1Id: l1._id,
@@ -35,14 +81,19 @@ export const createPaymentLink = mutation({
       token,
       status: "SHARED",
       createdAt: now,
-      expiresAt: now + settings.paymentLinkExpiryHours * 60 * 60 * 1000,
+      expiresAt,
+      qrisPayload,
+      qrisAmount,
     });
     return {
       linkId,
       token,
       amount: plan.price,
+      qrisAmount,
+      qrisPayload,
       kind: plan.category,
-      expiresAt: now + settings.paymentLinkExpiryHours * 60 * 60 * 1000,
+      expiresAt,
+      instructions: qris.instructions ?? null,
       payoutProfileCompleted: await ensureProfileComplete(ctx, l1._id),
     };
   },
@@ -56,7 +107,11 @@ function shapeLink(link: Doc<"paymentLinks">, plan: Doc<"productPlans"> | null) 
     planKey: plan?.key ?? "",
     kind: link.kind,
     amount: link.amount,
+    qrisAmount: link.qrisAmount ?? link.amount,
     status: link.status,
+    verification: link.verification ?? null,
+    rejectionReason: link.rejectionReason ?? null,
+    proofUploadedAt: link.proofUploadedAt ?? null,
     createdAt: link.createdAt,
     expiresAt: link.expiresAt,
     paidAt: link.paidAt ?? null,
@@ -97,11 +152,63 @@ export const publicLink = query({
       seatCount: plan?.seatCount ?? 0,
       kind: link.kind,
       amount: link.amount,
+      qrisAmount: link.qrisAmount ?? link.amount,
+      qrisPayload: link.status === "SHARED" ? (link.qrisPayload ?? null) : null,
       status: link.status,
       expiresAt: link.expiresAt,
       sellerName: seller?.name ?? null,
-      paymentMode: process.env.AYO_PAYMENT_MODE ?? "SIMULATED",
+      instructions: (await getSettings(ctx)).qris?.instructions ?? null,
     };
+  },
+});
+
+/** The QRIS screen the L1 holds up while the buyer scans. */
+export const linkDetail = query({
+  args: { linkId: v.id("paymentLinks") },
+  handler: async (ctx, args) => {
+    const l1 = await requireL1(ctx);
+    const link = await ctx.db.get("paymentLinks", args.linkId);
+    if (!link || link.l1Id !== l1._id) return null;
+    const plan = await ctx.db.get("productPlans", link.planId);
+
+    // The code is only worth showing once the payment has been recorded.
+    const codes = await ctx.db
+      .query("subscriptionCodes")
+      .withIndex("by_payment_link", (q) => q.eq("paymentLinkId", link._id))
+      .collect();
+    const seats = await ctx.db
+      .query("lifetimeSeats")
+      .withIndex("by_payment_link", (q) => q.eq("paymentLinkId", link._id))
+      .collect();
+
+    return {
+      ...shapeLink(link, plan),
+      qrisPayload: link.status === "SHARED" ? (link.qrisPayload ?? null) : null,
+      proofUploaded: !!link.proofStorageId,
+      codes: codes.map((c) => ({ id: c._id, code: c.code, status: c.status })),
+      seats: seats.map((s) => ({
+        id: s._id,
+        seatIndex: s.seatIndex,
+        status: s.status,
+        token: s.activationLinkToken ?? null,
+        expiresAt: s.linkExpiresAt ?? null,
+      })),
+    };
+  },
+});
+
+/**
+ * §15.6 — a pooled seat becomes a shareable activation link. The POS can do
+ * this itself; with manual settlement the L1 needs it too, because they are
+ * standing in front of the buyer when the transfer lands.
+ */
+export const createSeatLink = mutation({
+  args: { seatId: v.id("lifetimeSeats") },
+  handler: async (ctx, args) => {
+    const l1 = await requireL1(ctx);
+    const seat = await ctx.db.get("lifetimeSeats", args.seatId);
+    if (!seat || seat.sellerL1Id !== l1._id) fail("NOT_FOUND", "Kursi tidak ditemukan.");
+    return await issueSeatLink(ctx, seat);
   },
 });
 

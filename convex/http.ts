@@ -67,6 +67,10 @@ const ERROR_COPY: Record<string, { status: number; message: string }> = {
   seat_used: { status: 409, message: "Kursi sudah dipakai." },
   seat_link_expired: { status: 409, message: "Tautan kursi kedaluwarsa." },
   no_seat: { status: 404, message: "Tidak ada kursi tersedia." },
+  settlement_manual: {
+    status: 503,
+    message: "Pembayaran lewat aplikasi belum aktif. Hubungi agen Anda.",
+  },
   NOT_PROSPECT: { status: 409, message: "Toko sudah berlangganan." },
 };
 

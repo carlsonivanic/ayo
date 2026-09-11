@@ -1,7 +1,8 @@
 import { v } from "convex/values";
 import { mutation, query } from "../_generated/server";
 import { audit } from "../lib/audit";
-import { requireAdmin } from "../lib/authz";
+import { fail, requireAdmin } from "../lib/authz";
+import { convertQRIS, summarizeQRIS, validateQRIS } from "../lib/qris";
 import { ensureSettings, getSettings } from "../lib/settings";
 
 // §21 scheme settings — every business constant is admin-configurable, and every
@@ -107,5 +108,89 @@ export const update = mutation({
       newValue: patch,
     });
     return null;
+  },
+});
+
+// --- manual QRIS settlement -------------------------------------------------
+
+/**
+ * The merchant's own static QRIS, stored once and reused for every sale.
+ *
+ * It is validated at paste time — CRC and required tags — and test-converted
+ * with a sample amount, because a payload that fails here would produce a QR
+ * no bank app accepts, and the L1 would only find out at the counter.
+ */
+export const saveQris = mutation({
+  args: {
+    staticPayload: v.string(),
+    enabled: v.boolean(),
+    uniqueAmountEnabled: v.boolean(),
+    uniqueAmountMax: v.number(),
+    instructions: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const admin = await requireAdmin(ctx);
+    const payload = args.staticPayload.trim();
+
+    const check = validateQRIS(payload);
+    if (!check.valid) fail("QRIS_INVALID", check.error);
+    try {
+      convertQRIS(payload, 10_000);
+    } catch {
+      fail("QRIS_INVALID", "Payload tidak bisa dijadikan QRIS dinamis.");
+    }
+    if (args.uniqueAmountMax < 1 || args.uniqueAmountMax > 99_999) {
+      fail("INVALID_RANGE", "Batas nominal unik harus 1–99.999.");
+    }
+
+    const summary = summarizeQRIS(payload);
+    const current = await ensureSettings(ctx);
+    await ctx.db.patch("schemeSettings", current._id, {
+      qris: {
+        enabled: args.enabled,
+        staticPayload: payload,
+        merchantName: summary.merchantName,
+        uniqueAmountEnabled: args.uniqueAmountEnabled,
+        uniqueAmountMax: args.uniqueAmountMax,
+        proofRequired: true,
+        instructions: args.instructions,
+      },
+      updatedAt: Date.now(),
+    });
+
+    await audit(ctx, {
+      adminId: admin._id,
+      action: "UPDATE_QRIS_SETTINGS",
+      object: "schemeSettings.qris",
+      // The payload is a payment credential — log the merchant, not the string.
+      oldValue: { merchantName: current.qris?.merchantName, enabled: current.qris?.enabled },
+      newValue: { merchantName: summary.merchantName, enabled: args.enabled },
+    });
+    return { merchantName: summary.merchantName, merchantCity: summary.merchantCity };
+  },
+});
+
+/** Admin preview: what the buyer's QR will actually encode. */
+export const qrisStatus = query({
+  args: { sampleAmount: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    const qris = (await getSettings(ctx)).qris;
+    if (!qris?.staticPayload) return null;
+    let sample: string | null = null;
+    try {
+      sample = convertQRIS(qris.staticPayload, args.sampleAmount ?? 10_000);
+    } catch {
+      sample = null;
+    }
+    return {
+      enabled: qris.enabled,
+      merchantName: qris.merchantName ?? "",
+      uniqueAmountEnabled: qris.uniqueAmountEnabled,
+      uniqueAmountMax: qris.uniqueAmountMax,
+      instructions: qris.instructions ?? "",
+      staticPayload: qris.staticPayload,
+      samplePayload: sample,
+    };
   },
 });

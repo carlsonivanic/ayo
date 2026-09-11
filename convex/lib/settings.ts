@@ -44,6 +44,12 @@ export const DEFAULT_SETTINGS: SchemeSettings = {
     l1MonthlyPayDay: 5,
     l2MonthlyPayDay: 5,
   },
+  qris: {
+    enabled: false, // an admin must paste a static payload first
+    uniqueAmountEnabled: true,
+    uniqueAmountMax: 999,
+    proofRequired: true,
+  },
   moneyDisplay: "ROUNDED",
   renewalIncentivePercent: 2,
   ownershipWindowMonths: 36,

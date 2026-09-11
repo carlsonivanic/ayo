@@ -1,24 +1,20 @@
-import { useMutation, useQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import { useRouter } from "next/router";
-import { useState } from "react";
 import { Wordmark } from "@/components/AppShell";
 import { Splash } from "@/components/Guard";
-import { Button } from "@/components/ui/Button";
+import { QrisCode } from "@/components/Qris";
 import { Card } from "@/components/ui/Card";
-import { useToast } from "@/components/ui/Feedback";
 import { api } from "@/convex/_generated/api";
 import { countdown, money } from "@/lib/format";
-import { errorMessage } from "@/lib/utils";
 
 // Merchant-facing checkout. The token is the capability — no login.
+// Settlement is manual: this page only shows the QRIS. The agent confirms the
+// transfer and hands over the activation code.
 
 export default function BayarPage() {
   const router = useRouter();
   const token = typeof router.query.token === "string" ? router.query.token : "";
   const link = useQuery(api.sell.publicLink, token ? { token } : "skip");
-  const pay = useMutation(api.payments.simulateCheckout);
-  const toast = useToast();
-  const [busy, setBusy] = useState(false);
 
   if (!token || link === undefined) return <Splash />;
 
@@ -86,38 +82,28 @@ export default function BayarPage() {
         </div>
 
         <div className="border-t border-line px-5 py-5">
-          {link.paymentMode === "SIMULATED" ? (
-            <>
-              <Button
-                block
-                disabled={busy}
-                onClick={async () => {
-                  setBusy(true);
-                  try {
-                    const result = await pay({ token });
-                    if (!result.ok) toast("Pembayaran gagal", "warn");
-                  } catch (err) {
-                    toast(errorMessage(err), "warn");
-                  } finally {
-                    setBusy(false);
-                  }
-                }}
-              >
-                {busy ? "Memproses…" : "Bayar sekarang"}
-              </Button>
-              <p className="mt-3 text-center text-[12px] text-ink-faint">
-                Mode uji coba — gateway pembayaran belum terhubung.
-              </p>
-            </>
-          ) : (
+          {link.qrisPayload ? (
             <div className="text-center">
-              <div className="mx-auto grid h-40 w-40 place-items-center rounded border border-dashed border-line-strong text-[13px] text-ink-faint">
-                QRIS
+              <div className="flex justify-center">
+                <QrisCode payload={link.qrisPayload} size={200} />
               </div>
               <p className="mt-3 text-[13px] text-ink-mute">
                 Pindai dengan aplikasi bank atau e-wallet Anda.
               </p>
+              <p className="mt-1 text-[13px] text-ink-mute">
+                Transfer persis{" "}
+                <span className="num font-semibold text-ink">{money(link.qrisAmount)}</span>
+              </p>
             </div>
+          ) : (
+            <p className="text-center text-[13px] text-ink-mute">
+              QRIS belum tersedia. Hubungi penjual Anda.
+            </p>
+          )}
+          {link.instructions && (
+            <p className="mt-4 rounded border border-line bg-black/[0.015] px-3 py-2 text-[13px] text-ink-soft">
+              {link.instructions}
+            </p>
           )}
         </div>
       </Card>

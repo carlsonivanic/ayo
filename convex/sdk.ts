@@ -15,6 +15,16 @@ import { activateSeat, issueSeatLink, onLifetimePaid } from "./seats";
 
 type Failure = { ok: false; error: string };
 
+/**
+ * Two SDK routes settle money on the device's word alone: the POS says the
+ * buyer paid and AYO books the commission. That is safe only behind a real
+ * gateway. While settlement is manual they stay off unless an operator opts
+ * in explicitly, and sales go through the L1's QRIS + receipt flow instead.
+ */
+function deviceSettlementDisabled(): boolean {
+  return (process.env.AYO_TRUST_DEVICE_PAYMENTS ?? "false").toLowerCase() !== "true";
+}
+
 async function merchantByStore(ctx: MutationCtx, storeId: string) {
   return await ctx.db
     .query("merchants")
@@ -345,6 +355,7 @@ export const reportSelfRenewal = internalMutation({
     ctx,
     args,
   ): Promise<Failure | { ok: true; expiresAt: number; planKey: string }> => {
+    if (deviceSettlementDisabled()) return { ok: false, error: "settlement_manual" };
     const merchant = await merchantByStore(ctx, args.storeId);
     if (!merchant) return { ok: false, error: "unknown_merchant" };
     if (merchant.subscriptionStatus === "LIFETIME") {
@@ -432,6 +443,7 @@ export const payLifetimeLink = internalMutation({
     ctx,
     args,
   ): Promise<Failure | { ok: true; seats: number; activated: boolean }> => {
+    if (deviceSettlementDisabled()) return { ok: false, error: "settlement_manual" };
     const link = await ctx.db
       .query("paymentLinks")
       .withIndex("by_token", (q) => q.eq("token", args.token))
