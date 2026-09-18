@@ -655,3 +655,97 @@ describe("manual QRIS settlement", () => {
     ).rejects.toThrow();
   });
 });
+
+describe("buyer-side settlement on a shared link (§4.4)", () => {
+  test("the buyer's own receipt releases the code on the link itself", async () => {
+    const c = await setup();
+    const link = await asUser(c, c.sellerId).mutation(api.sell.createPaymentLink, {
+      planId: c.monthlyId,
+    });
+
+    const result = await c.t.mutation(api.payments.submitBuyerProof, {
+      token: link.token,
+      storageId: await storeProof(c),
+    });
+    expect(result.ok).toBe(true);
+
+    // The link keeps serving the code — a buyer who closed the tab comes back.
+    const view = await c.t.query(api.sell.publicLink, { token: link.token });
+    expect(view?.status).toBe("PAID");
+    expect(view?.codes[0]?.code).toBe(result.ok ? result.code : undefined);
+    expect(view?.qrisPayload).toBeNull();
+
+    await c.t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("paymentLinks")
+        .withIndex("by_token", (q) => q.eq("token", link.token))
+        .unique();
+      expect(row?.proofSource).toBe("BUYER");
+      expect(row?.proofUploadedBy).toBeUndefined();
+      expect(row?.verification).toBe("PENDING");
+
+      // Unverified money never reaches a payout.
+      const earnings = await ctx.db
+        .query("earningLines")
+        .withIndex("by_l1_period", (q) => q.eq("l1Id", c.sellerId))
+        .collect();
+      expect(earnings[0].frozen).toBe(true);
+    });
+  });
+
+  test("a link can only be settled once, whoever uploads", async () => {
+    const c = await setup();
+    const link = await asUser(c, c.sellerId).mutation(api.sell.createPaymentLink, {
+      planId: c.monthlyId,
+    });
+    await c.t.mutation(api.payments.submitBuyerProof, {
+      token: link.token,
+      storageId: await storeProof(c),
+    });
+    await expect(
+      c.t.mutation(api.payments.submitBuyerProof, {
+        token: link.token,
+        storageId: await storeProof(c),
+      }),
+    ).rejects.toThrow();
+    await expect(
+      asUser(c, c.sellerId).mutation(api.payments.submitPaymentProof, {
+        linkId: link.linkId,
+        storageId: await storeProof(c),
+      }),
+    ).rejects.toThrow();
+  });
+
+  test("an expired link cannot be paid by the buyer", async () => {
+    const c = await setup();
+    const link = await asUser(c, c.sellerId).mutation(api.sell.createPaymentLink, {
+      planId: c.monthlyId,
+    });
+    await c.t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("paymentLinks")
+        .withIndex("by_token", (q) => q.eq("token", link.token))
+        .unique();
+      await ctx.db.patch("paymentLinks", row!._id, { expiresAt: Date.now() - 1 });
+    });
+    await expect(
+      c.t.mutation(api.payments.submitBuyerProof, {
+        token: link.token,
+        storageId: await storeProof(c),
+      }),
+    ).rejects.toThrow();
+  });
+
+  test("opening the link is recorded once for the seller to chase", async () => {
+    const c = await setup();
+    const link = await asUser(c, c.sellerId).mutation(api.sell.createPaymentLink, {
+      planId: c.monthlyId,
+    });
+    await c.t.mutation(api.sell.markLinkViewed, { token: link.token });
+    await c.t.mutation(api.sell.markLinkViewed, { token: link.token });
+
+    const links = await asUser(c, c.sellerId).query(api.sell.myLinks, {});
+    expect(links[0].viewCount).toBe(2);
+    expect(links[0].firstViewedAt).toBeTypeOf("number");
+  });
+});

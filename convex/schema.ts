@@ -219,8 +219,14 @@ export default defineSchema({
     qrisAmount: v.optional(v.number()),
     proofStorageId: v.optional(v.id("_storage")),
     proofUploadedAt: v.optional(v.number()),
-    proofUploadedBy: v.optional(v.id("users")),
+    proofUploadedBy: v.optional(v.id("users")), // absent when the buyer uploaded
+    proofSource: v.optional(v.union(v.literal("L1"), v.literal("BUYER"))),
     proofNote: v.optional(v.string()),
+    // Whether the buyer has ever opened the shared link. The L1 chases a link
+    // that was never opened differently from one that was opened and dropped.
+    firstViewedAt: v.optional(v.number()),
+    lastViewedAt: v.optional(v.number()),
+    viewCount: v.optional(v.number()),
     // Absent on gateway-settled links; present whenever a human must review.
     verification: v.optional(paymentVerification),
     verifiedAt: v.optional(v.number()),

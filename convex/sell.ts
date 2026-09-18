@@ -3,7 +3,8 @@ import { Doc, Id } from "./_generated/dataModel";
 import { MutationCtx, mutation, query } from "./_generated/server";
 import { fail, requireActive, requireL1 } from "./lib/authz";
 import { pctOf } from "./lib/money";
-import { convertQRIS } from "./lib/qris";
+import { convertQRIS, qrisFrameInfo } from "./lib/qris";
+import { notify } from "./lib/notify";
 import { getSettings } from "./lib/settings";
 import { randomToken } from "./lib/tokens";
 import { issueSeatLink } from "./seats";
@@ -93,6 +94,7 @@ export const createPaymentLink = mutation({
       qrisPayload,
       kind: plan.category,
       expiresAt,
+      merchant: qrisFrameInfo(qrisPayload),
       instructions: qris.instructions ?? null,
       payoutProfileCompleted: await ensureProfileComplete(ctx, l1._id),
     };
@@ -115,6 +117,10 @@ function shapeLink(link: Doc<"paymentLinks">, plan: Doc<"productPlans"> | null) 
     createdAt: link.createdAt,
     expiresAt: link.expiresAt,
     paidAt: link.paidAt ?? null,
+    proofSource: link.proofSource ?? null,
+    firstViewedAt: link.firstViewedAt ?? null,
+    lastViewedAt: link.lastViewedAt ?? null,
+    viewCount: link.viewCount ?? 0,
   };
 }
 
@@ -128,12 +134,29 @@ export const myLinks = query({
       .order("desc")
       .take(args.limit ?? 30);
     return Promise.all(
-      links.map(async (l) => shapeLink(l, await ctx.db.get("productPlans", l.planId))),
+      links.map(async (link) => {
+        const codes = await ctx.db
+          .query("subscriptionCodes")
+          .withIndex("by_payment_link", (q) => q.eq("paymentLinkId", link._id))
+          .collect();
+        return {
+          ...shapeLink(link, await ctx.db.get("productPlans", link.planId)),
+          code: codes[0]?.code ?? null,
+          codeStatus: codes[0]?.status ?? null,
+        };
+      }),
     );
   },
 });
 
-/** Public checkout view — no session, the token is the capability. */
+/**
+ * Public checkout view — no session, the token is the capability.
+ *
+ * The same token answers the buyer's question at every stage: before payment it
+ * is the QRIS, after payment it is the activation code. Nothing here is gated
+ * on the link still being open, because a buyer who closed the tab after paying
+ * must be able to come back to it (§4.4).
+ */
 export const publicLink = query({
   args: { token: v.string() },
   handler: async (ctx, args) => {
@@ -144,6 +167,25 @@ export const publicLink = query({
     if (!link) return null;
     const plan = await ctx.db.get("productPlans", link.planId);
     const seller = link.l1Id ? await ctx.db.get("users", link.l1Id) : null;
+    const settings = await getSettings(ctx);
+
+    const open = link.status === "SHARED" && link.expiresAt > Date.now();
+
+    const codes =
+      link.status === "PAID"
+        ? await ctx.db
+            .query("subscriptionCodes")
+            .withIndex("by_payment_link", (q) => q.eq("paymentLinkId", link._id))
+            .collect()
+        : [];
+    const seats =
+      link.status === "PAID"
+        ? await ctx.db
+            .query("lifetimeSeats")
+            .withIndex("by_payment_link", (q) => q.eq("paymentLinkId", link._id))
+            .collect()
+        : [];
+
     return {
       token: link.token,
       planName: plan?.name ?? "",
@@ -153,12 +195,70 @@ export const publicLink = query({
       kind: link.kind,
       amount: link.amount,
       qrisAmount: link.qrisAmount ?? link.amount,
-      qrisPayload: link.status === "SHARED" ? (link.qrisPayload ?? null) : null,
+      qrisPayload: open ? (link.qrisPayload ?? null) : null,
       status: link.status,
+      open,
+      createdAt: link.createdAt,
       expiresAt: link.expiresAt,
+      paidAt: link.paidAt ?? null,
       sellerName: seller?.name ?? null,
-      instructions: (await getSettings(ctx)).qris?.instructions ?? null,
+      sellerPhone: seller?.mobile ?? seller?.phone ?? null,
+      instructions: settings.qris?.instructions ?? null,
+      proofRequired: settings.qris?.proofRequired ?? true,
+      // Identity printed around the QR, exactly as on a physical QRIS stand.
+      merchant: link.qrisPayload ? qrisFrameInfo(link.qrisPayload) : null,
+      proof: link.proofUploadedAt
+        ? {
+            uploadedAt: link.proofUploadedAt,
+            verification: link.verification ?? null,
+            rejectionReason: link.rejectionReason ?? null,
+          }
+        : null,
+      codes: codes.map((c) => ({
+        code: c.code,
+        status: c.status,
+        expiresAt: c.expiresAt,
+      })),
+      seats: seats.map((s) => ({
+        seatIndex: s.seatIndex,
+        token: s.activationLinkToken ?? null,
+        status: s.status,
+      })),
     };
+  },
+});
+
+/**
+ * "Sudah dibuka pembeli" on the L1's tracking list. Fired once per page open;
+ * it is deliberately unauthenticated, so it records only that the token was
+ * fetched — never who fetched it.
+ */
+export const markLinkViewed = mutation({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    const link = await ctx.db
+      .query("paymentLinks")
+      .withIndex("by_token", (q) => q.eq("token", args.token))
+      .unique();
+    if (!link) return null;
+    const now = Date.now();
+    await ctx.db.patch("paymentLinks", link._id, {
+      firstViewedAt: link.firstViewedAt ?? now,
+      lastViewedAt: now,
+      viewCount: (link.viewCount ?? 0) + 1,
+    });
+    if (link.l1Id && !link.firstViewedAt) {
+      const plan = await ctx.db.get("productPlans", link.planId);
+      await notify(
+        ctx,
+        link.l1Id,
+        "LINK_VIEWED",
+        "Tautan dibuka pembeli",
+        `${plan?.name ?? "Tautan"} — pembeli sedang melihat QRIS.`,
+        "/l1/kode?tab=tautan",
+      );
+    }
+    return null;
   },
 });
 
@@ -184,6 +284,7 @@ export const linkDetail = query({
     return {
       ...shapeLink(link, plan),
       qrisPayload: link.status === "SHARED" ? (link.qrisPayload ?? null) : null,
+      merchant: link.qrisPayload ? qrisFrameInfo(link.qrisPayload) : null,
       proofUploaded: !!link.proofStorageId,
       codes: codes.map((c) => ({ id: c._id, code: c.code, status: c.status })),
       seats: seats.map((s) => ({

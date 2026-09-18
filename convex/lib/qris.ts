@@ -62,6 +62,38 @@ export function summarizeQRIS(payload: string): QrisSummary {
   };
 }
 
+/**
+ * The National Merchant ID printed under the QR on every physical QRIS stand.
+ *
+ * It lives in the domestic acquirer template (tag 51) as sub-tag 02. Some
+ * issuers only fill the acquirer templates (26-45), so those are tried next.
+ */
+export function qrisNmid(payload: string): string | null {
+  const top = parseTLV(payload.trim());
+  const candidates = ["51", ...Array.from({ length: 20 }, (_, i) => String(26 + i))];
+  for (const tag of candidates) {
+    const el = top.find((e) => e.tag === tag);
+    if (!el) continue;
+    const nmid = parseTLV(el.value).find((sub) => sub.tag === "02")?.value;
+    if (nmid && /^[A-Z0-9]{8,}$/i.test(nmid)) return nmid;
+  }
+  return null;
+}
+
+/** Everything the printed QRIS frame shows around the code itself. */
+export function qrisFrameInfo(payload: string): {
+  merchantName: string;
+  merchantCity: string;
+  nmid: string | null;
+} {
+  const summary = summarizeQRIS(payload);
+  return {
+    merchantName: summary.merchantName,
+    merchantCity: summary.merchantCity,
+    nmid: qrisNmid(payload),
+  };
+}
+
 export type QrisValidation = { valid: true } | { valid: false; error: string };
 
 /**

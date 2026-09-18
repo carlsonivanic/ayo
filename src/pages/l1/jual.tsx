@@ -1,16 +1,16 @@
 import { useMutation, useQuery } from "convex/react";
-import { Copy, MessageCircle, Upload } from "lucide-react";
+import { Copy, MessageCircle, QrCode, Send, Upload } from "lucide-react";
 import Link from "next/link";
 import { useRef, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { Guard } from "@/components/Guard";
-import { QrisCode } from "@/components/Qris";
+import { QrisFrame } from "@/components/Qris";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Loading, Pill, Sheet, useToast } from "@/components/ui/Feedback";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
-import { countdown } from "@/lib/format";
+import { countdown, money } from "@/lib/format";
 import { useMoney } from "@/lib/useMoney";
 import { copy, errorMessage, whatsappUrl } from "@/lib/utils";
 
@@ -33,6 +33,7 @@ type Created = {
   kind: "SUBSCRIPTION" | "LIFETIME";
   expiresAt: number;
   planName: string;
+  merchant: { merchantName: string; merchantCity: string; nmid: string | null };
   instructions: string | null;
 };
 
@@ -97,9 +98,16 @@ function Body() {
               </div>
             </div>
             <div className="flex items-center justify-between gap-3 border-t border-line bg-black/[0.015] px-4 py-3">
-              <div className="text-[13px] text-ink-soft">
-                Komisi Anda{" "}
-                <span className="num font-semibold text-good">{fmt(plan.commission)}</span>
+              {/* A renewal plan pays for years — the first month alone undersells it. */}
+              <div className="min-w-0 text-[13px] text-ink-soft">
+                <span className="num font-semibold text-good">{fmt(plan.commission)}</span>{" "}
+                sekarang
+                {plan.lifetimeValue > plan.commission && (
+                  <>
+                    {" · "}
+                    <span className="num font-semibold">{fmt(plan.lifetimeValue)}</span> total
+                  </>
+                )}
               </div>
               <Button
                 size="sm"
@@ -118,10 +126,14 @@ function Body() {
   );
 }
 
+type Mode = "qris" | "link";
+
 /**
- * Settlement is manual: the buyer scans, the L1 uploads the receipt, and the
- * code appears. The unique amount is what ties this sale to one line in the
- * bank statement, so it is the number shown largest.
+ * Two ways to collect: hold the phone out, or send the link.
+ *
+ * Settlement is manual either way. When the agent is face to face they upload
+ * the receipt themselves; when the link is sent, the buyer does it and the code
+ * lands on their own screen without the agent in the loop.
  */
 function Checkout({ created, onClose }: { created: Created; onClose: () => void }) {
   const detail = useQuery(api.sell.linkDetail, { linkId: created.linkId });
@@ -132,10 +144,12 @@ function Checkout({ created, onClose }: { created: Created; onClose: () => void 
   const toast = useToast();
   const fileInput = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [mode, setMode] = useState<Mode>("qris");
 
   const paid = detail?.status === "PAID";
   const origin = typeof window === "undefined" ? "" : window.location.origin;
   const code = detail?.codes[0]?.code ?? null;
+  const payUrl = `${origin}/${created.kind === "LIFETIME" ? "lifetime" : "bayar"}/${created.token}`;
 
   async function upload(file: File) {
     if (!file.type.startsWith("image/") && file.type !== "application/pdf") {
@@ -170,9 +184,13 @@ function Checkout({ created, onClose }: { created: Created; onClose: () => void 
     }
   }
 
-  const message = code
+  const shareMessage =
+    `Pembayaran SellMore ${created.planName} — ${money(created.qrisAmount)}\n` +
+    `Scan QRIS dan unggah bukti transfer di tautan ini, kode aktivasi langsung muncul:\n${payUrl}`;
+
+  const codeMessage = code
     ? `Kode aktivasi SellMore Anda: ${code}\n\nMasukkan di aplikasi SellMore. Berlaku 7 hari.`
-    : `Halo! Silakan scan QRIS untuk ${created.planName} SellMore, nominal Rp ${created.qrisAmount.toLocaleString("id-ID")}.`;
+    : shareMessage;
 
   return (
     <Sheet
@@ -181,13 +199,13 @@ function Checkout({ created, onClose }: { created: Created; onClose: () => void 
       title={paid ? "Pembayaran tercatat" : created.planName}
       footer={
         paid ? (
-          <a href={whatsappUrl(message)} target="_blank" rel="noreferrer">
+          <a href={whatsappUrl(codeMessage)} target="_blank" rel="noreferrer">
             <Button block>
               <MessageCircle className="h-[18px] w-[18px]" />
-              Kirim ke pembeli
+              Kirim kode ke pembeli
             </Button>
           </a>
-        ) : (
+        ) : mode === "qris" ? (
           <>
             <input
               ref={fileInput}
@@ -204,31 +222,61 @@ function Checkout({ created, onClose }: { created: Created; onClose: () => void 
               {uploading ? "Mengunggah…" : "Upload bukti bayar"}
             </Button>
           </>
+        ) : (
+          <a href={whatsappUrl(shareMessage)} target="_blank" rel="noreferrer">
+            <Button block>
+              <MessageCircle className="h-[18px] w-[18px]" />
+              Kirim lewat WhatsApp
+            </Button>
+          </a>
         )
       }
     >
       {!paid && (
         <div className="space-y-4">
-          <div className="text-center">
-            <p className="eyebrow">Minta pembeli transfer persis</p>
-            <p className="num mt-1 text-[30px] font-semibold leading-none">
-              {created.qrisAmount.toLocaleString("id-ID")}
-            </p>
-            {created.qrisAmount !== created.amount && (
-              <p className="mt-1 text-[12px] text-ink-mute">
-                Harga {fmt(created.amount)} + kode unik untuk pencocokan
+          <Segmented value={mode} onChange={setMode} />
+
+          {mode === "qris" ? (
+            <div className="space-y-4">
+              <div className="flex justify-center">
+                <QrisFrame
+                  payload={created.qrisPayload}
+                  merchantName={created.merchant.merchantName}
+                  nmid={created.merchant.nmid}
+                />
+              </div>
+              <div className="text-center">
+                <p className="eyebrow">Minta pembeli transfer persis</p>
+                <p className="num mt-1 text-[30px] font-semibold leading-none">
+                  {fmt(created.qrisAmount)}
+                </p>
+                <p className="mt-1.5 text-[13px] text-ink-mute">
+                  {created.qrisAmount !== created.amount
+                    ? `Harga ${fmt(created.amount)} + kode unik untuk pencocokan`
+                    : `Berlaku ${countdown(created.expiresAt)}`}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-[13px] text-ink-mute">
+                Pembeli buka tautan ini, scan QRIS, unggah bukti transfer — kode aktivasi
+                muncul sendiri di layar mereka. Anda bisa pantau di tab Tautan.
               </p>
-            )}
-          </div>
-
-          <div className="flex justify-center">
-            <QrisCode payload={created.qrisPayload} />
-          </div>
-
-          <p className="text-center text-[13px] text-ink-mute">
-            Berlaku {countdown(created.expiresAt)}. Kode aktivasi muncul setelah bukti
-            bayar diunggah.
-          </p>
+              <button
+                onClick={async () => {
+                  if (await copy(payUrl)) toast("Tautan disalin");
+                }}
+                className="flex w-full items-center gap-3 rounded border border-line px-3 py-3 text-left"
+              >
+                <span className="num min-w-0 flex-1 truncate text-[13px]">{payUrl}</span>
+                <Copy className="h-4 w-4 shrink-0 text-ink-mute" />
+              </button>
+              <p className="text-[13px] text-ink-mute">
+                Berlaku {countdown(created.expiresAt)}.
+              </p>
+            </div>
+          )}
 
           {created.instructions && (
             <p className="rounded border border-line bg-black/[0.015] px-3 py-2 text-[13px] text-ink-soft">
@@ -292,5 +340,32 @@ function Checkout({ created, onClose }: { created: Created; onClose: () => void 
         </div>
       )}
     </Sheet>
+  );
+}
+
+function Segmented({ value, onChange }: { value: Mode; onChange: (v: Mode) => void }) {
+  const options: { value: Mode; label: string; icon: typeof QrCode }[] = [
+    { value: "qris", label: "Tunjukkan QRIS", icon: QrCode },
+    { value: "link", label: "Kirim tautan", icon: Send },
+  ];
+  return (
+    <div className="flex gap-1 rounded-lg bg-black/[0.04] p-1">
+      {options.map((option) => {
+        const Icon = option.icon;
+        const active = value === option.value;
+        return (
+          <button
+            key={option.value}
+            onClick={() => onChange(option.value)}
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-[13px] font-semibold transition ${
+              active ? "bg-surface text-ink shadow-sm" : "text-ink-mute"
+            }`}
+          >
+            <Icon className="h-4 w-4" />
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
   );
 }

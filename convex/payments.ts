@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
 import { MutationCtx, internalMutation, mutation } from "./_generated/server";
-import { fail, requireL1 } from "./lib/authz";
+import { fail, rateLimit, requireL1 } from "./lib/authz";
 import { generateCodeString } from "./lib/codegen";
 import { insertEarning } from "./lib/ledger";
 import { pctOf } from "./lib/money";
@@ -64,6 +64,7 @@ async function settle(
     verification?: "PENDING" | "VERIFIED";
     proofStorageId?: Id<"_storage">;
     proofUploadedBy?: Id<"users">;
+    proofSource?: "L1" | "BUYER";
     proofNote?: string;
   },
 ): Promise<PaymentResult> {
@@ -93,6 +94,7 @@ async function settle(
     proofStorageId: opts.proofStorageId,
     proofUploadedAt: opts.proofStorageId ? now : undefined,
     proofUploadedBy: opts.proofUploadedBy,
+    proofSource: opts.proofSource,
     proofNote: opts.proofNote,
   });
 
@@ -267,8 +269,68 @@ export const submitPaymentProof = mutation({
       verification: "PENDING",
       proofStorageId: args.storageId,
       proofUploadedBy: l1._id,
+      proofSource: "L1",
       proofNote: args.note,
       buyerStoreId: args.storeId,
+      idempotencyKey: `MANUAL-${link._id}`,
+    });
+  },
+});
+
+// --- buyer-side settlement (§4.4) -----------------------------------------
+//
+// The buyer pays on the shared link without ever logging in, so the token is
+// the only credential. That is the same trust level the L1 path already
+// carries: the code is released immediately and the commission is booked
+// FROZEN until an admin has seen the receipt. What changes is the blast
+// radius, so both entry points are rate limited per token.
+
+const PROOF_ATTEMPT_LIMIT = 5;
+const PROOF_WINDOW_MS = 60 * 60 * 1000;
+
+/** The link a buyer may still pay on, or a failure the page can explain. */
+async function openLinkByToken(ctx: MutationCtx, token: string) {
+  const link = await ctx.db
+    .query("paymentLinks")
+    .withIndex("by_token", (q) => q.eq("token", token))
+    .unique();
+  if (!link) fail("NOT_FOUND", "Tautan tidak ditemukan.");
+  if (link.status === "PAID") fail("ALREADY_PAID", "Pembayaran sudah tercatat.");
+  if (link.status !== "SHARED") fail("LINK_CLOSED", "Tautan sudah tidak berlaku.");
+  if (link.expiresAt < Date.now()) {
+    await ctx.db.patch("paymentLinks", link._id, { status: "EXPIRED" });
+    fail("LINK_EXPIRED", "Tautan kedaluwarsa. Minta tautan baru ke penjual.");
+  }
+  return link;
+}
+
+export const generateBuyerProofUploadUrl = mutation({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    await openLinkByToken(ctx, args.token);
+    await rateLimit(ctx, `proof:${args.token}`, PROOF_ATTEMPT_LIMIT, PROOF_WINDOW_MS);
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+/**
+ * The buyer uploads their own transfer receipt from the payment link. Same
+ * settlement as the L1 path — the code appears on this page straight away and
+ * the seller is told, so nobody has to be standing next to anybody.
+ */
+export const submitBuyerProof = mutation({
+  args: {
+    token: v.string(),
+    storageId: v.id("_storage"),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<PaymentResult> => {
+    const link = await openLinkByToken(ctx, args.token);
+    return await settle(ctx, link, {
+      verification: "PENDING",
+      proofStorageId: args.storageId,
+      proofSource: "BUYER",
+      proofNote: args.note,
       idempotencyKey: `MANUAL-${link._id}`,
     });
   },

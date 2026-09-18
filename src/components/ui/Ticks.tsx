@@ -10,11 +10,13 @@ export function Ticks({
   target,
   threshold,
   tone = "ink",
+  size = "md",
 }: {
   value: number;
   target: number;
   threshold?: number;
   tone?: "ink" | "accent" | "good" | "warn";
+  size?: "md" | "sm";
 }) {
   const cells = Math.max(target, 1);
   const fills = {
@@ -34,7 +36,8 @@ export function Ticks({
             key={i}
             style={{ animationDelay: `${Math.min(i, 12) * 18}ms` }}
             className={cn(
-              "h-6 flex-1 origin-bottom rounded-[2px] animate-tick",
+              "flex-1 origin-bottom rounded-[2px] animate-tick",
+              size === "sm" ? "h-3" : "h-6",
               filled ? fills[tone] : "bg-line",
               isThresholdEdge && "mr-[5px] shadow-[3px_0_0_-1px_#10312B]",
             )}

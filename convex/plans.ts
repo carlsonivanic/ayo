@@ -2,7 +2,9 @@ import { v } from "convex/values";
 import { Doc } from "./_generated/dataModel";
 import { MutationCtx, internalMutation, query } from "./_generated/server";
 import { requireActive } from "./lib/authz";
+import { planLifetimeValue } from "./lib/ltv";
 import { pctOf } from "./lib/money";
+import { getSettings } from "./lib/settings";
 
 // §2 product pricing. Commission is percentage-based so it follows price changes
 // automatically (§20.3).
@@ -101,6 +103,7 @@ export const listSellable = query({
   args: {},
   handler: async (ctx) => {
     await requireActive(ctx);
+    const settings = await getSettings(ctx);
     const plans = await ctx.db
       .query("productPlans")
       .withIndex("by_active", (q) => q.eq("active", true))
@@ -121,6 +124,10 @@ export const listSellable = query({
             : pctOf(p.price, p.y1Percent),
         commissionPercent:
           p.commissionType === "ONE_TIME" ? p.oneTimePercent : p.y1Percent,
+        // What one customer on this plan pays the agent over the whole
+        // ownership window — the number that makes a renewal plan look like
+        // what it is, rather than like a smaller sale.
+        lifetimeValue: planLifetimeValue(p, settings.ownershipWindowMonths),
       }));
   },
 });
