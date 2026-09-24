@@ -3,6 +3,7 @@ import { Doc } from "./_generated/dataModel";
 import { QueryCtx, query } from "./_generated/server";
 import { requireL1, requireL2 } from "./lib/authz";
 import { valueSchedule, remainingValue } from "./lib/ltv";
+import { round100 } from "./lib/money";
 import {
   addMonths,
   monthsBetween,
@@ -61,13 +62,32 @@ export const l1 = query({
     // --- realised ---------------------------------------------------------
     const realised = new Array(12).fill(0) as number[];
     const newSalesByPeriod = new Map<string, number>();
+    // A sale made today is PENDING until the buyer redeems the code, then
+    // CONFIRMED-but-frozen until an admin clears the receipt. Neither state
+    // counts as gross, and with manual QRIS settlement that is where nearly
+    // every fresh sale sits — so without this the month in progress reads as
+    // zero for days after a closing, which is the opposite of the point.
+    let inFlightNow = 0;
     for (let i = 0; i <= (currentIndex < 0 ? 11 : currentIndex); i++) {
       const lines = await linesFor(ctx, l1._id, periods[i]);
       realised[i] = lines.filter(countsToGross).reduce((sum, l) => sum + l.amount, 0);
+      if (i === currentIndex) {
+        inFlightNow = lines
+          .filter(
+            (l) =>
+              !l.settledToCompany &&
+              GROSS_TYPES.has(l.type) &&
+              (l.status === "PENDING" || l.frozen),
+          )
+          .reduce((sum, l) => sum + l.amount, 0);
+      }
+      // Frozen sales still count towards the run rate: they were closed, and
+      // whether an admin has looked at the receipt yet says nothing about how
+      // fast this agent sells.
       newSalesByPeriod.set(
         periods[i],
         lines
-          .filter((l) => l.type === "NEW_SALES" && !l.frozen && !l.settledToCompany)
+          .filter((l) => l.type === "NEW_SALES" && !l.settledToCompany)
           .reduce((sum, l) => sum + l.amount, 0),
       );
     }
@@ -111,13 +131,16 @@ export const l1 = query({
       }
       const lines = await linesFor(ctx, l1._id, period);
       runRateTotal += lines
-        .filter((l) => l.type === "NEW_SALES" && !l.frozen && !l.settledToCompany)
+        .filter((l) => l.type === "NEW_SALES" && !l.settledToCompany)
         .reduce((sum, l) => sum + l.amount, 0);
     }
-    const runRate = Math.round(runRateTotal / monthsCounted);
+    // Every rupiah figure in AYO is rounded to 100 (§29) — an average must
+    // not be the one place that shows 4.120.001.
+    const runRate = round100(runRateTotal / monthsCounted);
 
     const months = periods.map((period, i) => {
       const future = currentIndex >= 0 && i > currentIndex;
+      const current = i === currentIndex;
       return {
         period,
         month: i + 1,
@@ -125,7 +148,7 @@ export const l1 = query({
         // Future months carry both halves so the tooltip can split them.
         recurring: future ? projected[i] : 0,
         newSales: future ? runRate : 0,
-        projected: future ? projected[i] + runRate : 0,
+        projected: future ? projected[i] + runRate : current ? inFlightNow : 0,
       };
     });
 
@@ -140,6 +163,7 @@ export const l1 = query({
       projectedTotal,
       yearTotal: realisedTotal + projectedTotal,
       runRate,
+      inFlightNow,
       portfolioValue,
       activeCustomers: merchants.filter((m) => m.subscriptionStatus === "SUBSCRIBED").length,
       windowMonths: window,
@@ -176,7 +200,7 @@ export const l2 = query({
     const closed = realised.slice(0, Math.max(0, upTo)).filter((v) => v > 0);
     const recent = closed.slice(-3);
     const runRate = recent.length
-      ? Math.round(recent.reduce((a, b) => a + b, 0) / recent.length)
+      ? round100(recent.reduce((a, b) => a + b, 0) / recent.length)
       : 0;
 
     const months = periods.map((period, i) => {
@@ -185,7 +209,7 @@ export const l2 = query({
         period,
         month: i + 1,
         realised: realised[i],
-        projected: future && realised[i] === 0 ? runRate : 0,
+        projected: future ? Math.max(0, runRate - realised[i]) : 0,
       };
     });
 

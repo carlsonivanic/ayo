@@ -1,9 +1,12 @@
-import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis } from "recharts";
+import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 
-// One year of commission, month by month. Realised months are solid; months
-// that have not happened yet are the same colour at low opacity — same money,
-// not yet real. One hue only, because a second colour would imply a second
-// kind of income.
+// One year of commission, month by month. Confirmed money is solid; money that
+// is only expected — a renewal still to come, a sale whose code has not been
+// redeemed yet — is the same colour at low opacity. Same money, not yet real.
+// One hue only, because a second colour would imply a second kind of income.
+//
+// The two halves stack, so the month in progress shows what has landed and what
+// is still in flight in one bar rather than vanishing between them.
 
 const INK = "#10312B";
 const MONTHS = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"];
@@ -20,11 +23,9 @@ export type YearPoint = {
 
 export default function YearChart({
   data,
-  currentMonth,
   format,
 }: {
   data: YearPoint[];
-  currentMonth: number;
   format: (value: number) => string;
 }) {
   const rows = data.map((d) => ({ ...d, total: d.realised + d.projected }));
@@ -58,22 +59,35 @@ export default function YearChart({
                     <div className="num mt-0.5 text-[13px] font-semibold">
                       {format(row.total)}
                     </div>
-                    <div className="mt-0.5 text-[11px] text-ink-mute">
-                      {row.projected > 0 ? "Proyeksi" : "Realisasi"}
-                    </div>
+                    {row.realised > 0 && row.projected > 0 ? (
+                      <div className="mt-0.5 text-[11px] text-ink-mute">
+                        {format(row.realised)} masuk · {format(row.projected)} menyusul
+                      </div>
+                    ) : (
+                      <div className="mt-0.5 text-[11px] text-ink-mute">
+                        {row.projected > 0 ? "Proyeksi" : "Realisasi"}
+                      </div>
+                    )}
                   </div>
                 );
               }}
             />
-            <Bar dataKey="total" radius={[3, 3, 0, 0]} maxBarSize={22} isAnimationActive={false}>
-              {rows.map((row) => (
-                <Cell
-                  key={row.month}
-                  fill={INK}
-                  fillOpacity={row.month > currentMonth ? 0.22 : 1}
-                />
-              ))}
-            </Bar>
+            <Bar
+              dataKey="realised"
+              stackId="year"
+              fill={INK}
+              maxBarSize={22}
+              isAnimationActive={false}
+            />
+            <Bar
+              dataKey="projected"
+              stackId="year"
+              fill={INK}
+              fillOpacity={0.22}
+              radius={[3, 3, 0, 0]}
+              maxBarSize={22}
+              isAnimationActive={false}
+            />
           </BarChart>
         </ResponsiveContainer>
       )}

@@ -296,6 +296,7 @@ export const updateUser = mutation({
   args: {
     userId: v.id("users"),
     name: v.optional(v.string()),
+    email: v.optional(v.string()),
     mobile: v.optional(v.string()),
     payoutFrequency: v.optional(
       v.union(v.literal("WEEKLY"), v.literal("MONTHLY")),
@@ -306,7 +307,23 @@ export const updateUser = mutation({
     const user = await ctx.db.get("users", args.userId);
     if (!user) fail("NOT_FOUND", "Pengguna tidak ditemukan.");
     const patch: Partial<Doc<"users">> = {};
-    if (args.name !== undefined) patch.name = args.name.trim();
+    if (args.name !== undefined) {
+      const name = args.name.trim();
+      if (name.length < 2) fail("INVALID_NAME", "Nama terlalu pendek.");
+      patch.name = name;
+    }
+    const email = args.email?.trim().toLowerCase();
+    const emailChanged = email !== undefined && email !== (user.email ?? "");
+    if (emailChanged) {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail("INVALID_EMAIL", "Email tidak valid.");
+      const clash = await ctx.db
+        .query("users")
+        .withIndex("email", (q) => q.eq("email", email))
+        .first();
+      if (clash && clash._id !== user._id) fail("EMAIL_TAKEN", "Email sudah terdaftar.");
+      patch.email = email;
+      patch.emailVerificationTime = undefined;
+    }
     if (args.mobile !== undefined) {
       const mobile = normalizeMobile(args.mobile);
       await assertMobileFree(ctx, mobile, user._id);
@@ -314,10 +331,30 @@ export const updateUser = mutation({
     }
     if (args.payoutFrequency) patch.payoutFrequency = args.payoutFrequency;
     await ctx.db.patch("users", user._id, patch);
+    if (emailChanged) {
+      // Login is keyed on the auth account, not users.email. Drop the old link
+      // so the old address can no longer sign in; the next OTP to the new
+      // address re-links through createOrUpdateUser.
+      const accounts = await ctx.db
+        .query("authAccounts")
+        .withIndex("userIdAndProvider", (q) =>
+          q.eq("userId", user._id).eq("provider", "email-otp"),
+        )
+        .collect();
+      for (const account of accounts) {
+        const codes = await ctx.db
+          .query("authVerificationCodes")
+          .withIndex("accountId", (q) => q.eq("accountId", account._id))
+          .collect();
+        for (const code of codes) await ctx.db.delete("authVerificationCodes", code._id);
+        await ctx.db.delete("authAccounts", account._id);
+      }
+    }
     await audit(ctx, {
       adminId: admin._id,
       action: "UPDATE_USER",
       object: `user:${user._id}`,
+      oldValue: { name: user.name, email: user.email, mobile: user.mobile },
       newValue: patch,
     });
     return null;

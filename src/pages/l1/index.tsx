@@ -54,11 +54,7 @@ function Body() {
         </div>
         {outlook && (
           <div className="px-2 pb-2">
-            <YearChart
-              data={outlook.months}
-              currentMonth={outlook.currentMonth}
-              format={fmt}
-            />
+            <YearChart data={outlook.months} format={fmt} />
           </div>
         )}
         <Row

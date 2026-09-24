@@ -27,13 +27,15 @@ function Body() {
   const user = useQuery(api.admin.users.detail, id ? { userId: id } : "skip");
   const l2Options = useQuery(api.admin.users.l2Options);
   const setStatus = useMutation(api.admin.users.setStatus);
+  const updateUser = useMutation(api.admin.users.updateUser);
   const assignL2 = useMutation(api.admin.users.assignL2);
   const releaseHeld = useMutation(api.admin.ops.manualHeldRelease);
   const createAdjustment = useMutation(api.admin.ops.createAdjustment);
   const toast = useToast();
   const fmt = useMoney();
 
-  const [sheet, setSheet] = useState<"suspend" | "held" | "adjust" | null>(null);
+  const [sheet, setSheet] = useState<"edit" | "suspend" | "held" | "adjust" | null>(null);
+  const [form, setForm] = useState({ name: "", email: "", mobile: "" });
   const [reason, setReason] = useState("");
   const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState(false);
@@ -162,6 +164,16 @@ function Body() {
         )}
 
         <div className="space-y-3">
+          <Button
+            variant="quiet"
+            block
+            onClick={() => {
+              setForm({ name: user.name, email: user.email, mobile: user.mobile });
+              setSheet("edit");
+            }}
+          >
+            Ubah data
+          </Button>
           {user.role === "L1" && (
             <Button variant="quiet" block onClick={() => setSheet("held")}>
               Rilis held money manual
@@ -189,6 +201,51 @@ function Body() {
           ) : null}
         </div>
       </div>
+
+      <Sheet
+        open={sheet === "edit"}
+        onClose={() => setSheet(null)}
+        title="Ubah data"
+        footer={
+          <Button
+            block
+            disabled={busy || !form.name.trim() || !form.email.trim()}
+            onClick={() =>
+              void run(() => updateUser({ userId: user.id, ...form }), "Data diperbarui")
+            }
+          >
+            Simpan
+          </Button>
+        }
+      >
+        <div className="space-y-4">
+          <Field label="Nama">
+            <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          </Field>
+          <Field
+            label="Email"
+            hint={
+              form.email.trim().toLowerCase() !== user.email
+                ? "Login berikutnya pakai email baru."
+                : undefined
+            }
+          >
+            <Input
+              type="email"
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+            />
+          </Field>
+          <Field label="Nomor HP">
+            <Input
+              type="tel"
+              inputMode="tel"
+              value={form.mobile}
+              onChange={(e) => setForm({ ...form, mobile: e.target.value })}
+            />
+          </Field>
+        </div>
+      </Sheet>
 
       <Sheet
         open={sheet === "suspend"}
