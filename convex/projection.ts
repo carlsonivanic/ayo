@@ -4,6 +4,7 @@ import { QueryCtx, query } from "./_generated/server";
 import { requireL1, requireL2 } from "./lib/authz";
 import { valueSchedule, remainingValue } from "./lib/ltv";
 import { round100 } from "./lib/money";
+import { activeOverride, applyPlanOverride } from "./lib/overrides";
 import {
   addMonths,
   monthsBetween,
@@ -100,12 +101,14 @@ export const l1 = query({
 
     const projected = new Array(12).fill(0) as number[];
     let portfolioValue = 0;
+    const override = await activeOverride(ctx, l1._id);
 
     for (const merchant of merchants) {
       if (merchant.subscriptionStatus !== "SUBSCRIBED") continue;
       if (!merchant.currentPlanId) continue;
-      const plan = await ctx.db.get("productPlans", merchant.currentPlanId);
-      if (!plan) continue;
+      const stored = await ctx.db.get("productPlans", merchant.currentPlanId);
+      if (!stored) continue;
+      const plan = applyPlanOverride(stored, override);
       const elapsed = monthsBetween(merchant.firstPaymentAt, args.now);
       portfolioValue += remainingValue(plan, window, elapsed);
 

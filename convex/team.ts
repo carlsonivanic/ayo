@@ -3,6 +3,7 @@ import { query } from "./_generated/server";
 import { requireL2 } from "./lib/authz";
 import { l2EffectivePercent, l2StageFor } from "./lib/commission";
 import { periodEnd, periodOf, periodStart, shiftPeriod, tenureMonthAt } from "./lib/period";
+import { settingsForL2 } from "./lib/overrides";
 import { getSettings } from "./lib/settings";
 
 // §16-§18 — the L2 view of the L1s they coordinate. Read-only: an L2 never
@@ -12,7 +13,7 @@ export const roster = query({
   args: { now: v.number() },
   handler: async (ctx, args) => {
     const l2 = await requireL2(ctx);
-    const settings = await getSettings(ctx);
+    const settings = await settingsForL2(ctx, l2._id, await getSettings(ctx));
     const period = periodOf(args.now);
     const lastClosed = shiftPeriod(period, -1);
 

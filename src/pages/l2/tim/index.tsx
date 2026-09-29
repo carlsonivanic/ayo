@@ -4,21 +4,13 @@ import { useMemo, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { Guard } from "@/components/Guard";
 import { Button } from "@/components/ui/Button";
-import { Card, Row } from "@/components/ui/Card";
+import { Card, Row, Stat } from "@/components/ui/Card";
 import { Empty, Loading, Pill, Sheet, useToast } from "@/components/ui/Feedback";
 import { Input, Textarea } from "@/components/ui/Form";
 import { api } from "@/convex/_generated/api";
-import { percent } from "@/lib/format";
+import { lastSale } from "@/lib/format";
 import { useMoney } from "@/lib/useMoney";
 import { errorMessage } from "@/lib/utils";
-
-const STAGE_LABEL: Record<string, string> = {
-  PROBATION: "Probation",
-  ACTIVE_FEE: "Fee penuh",
-  DECAY_1: "Decay 1",
-  DECAY_2: "Decay 2",
-  MATURE: "Matang",
-};
 
 export default function TimPage() {
   return (
@@ -30,7 +22,7 @@ export default function TimPage() {
 
 function Body() {
   const now = useMemo(() => Date.now(), []);
-  const roster = useQuery(api.team.roster, { now });
+  const team = useQuery(api.performance.team, { now });
   const publish = useAction(api.announcements.publish);
   const fmt = useMoney();
   const toast = useToast();
@@ -52,39 +44,50 @@ function Body() {
         </button>
       }
     >
-      {!roster ? (
+      {!team ? (
         <Loading rows={5} />
-      ) : roster.length === 0 ? (
+      ) : team.members.length === 0 ? (
         <Empty title="Belum ada L1 di tim Anda." />
       ) : (
-        <Card>
-          {roster.map((member) => (
-            <Row
-              key={member.id}
-              label={member.name}
-              sub={`Bulan ke-${member.tenureMonth} · ${STAGE_LABEL[member.stage]} ${percent(member.effectivePercent)}`}
-              value={fmt(member.myFee)}
-              valueSub={
-                <span className="flex items-center justify-end gap-1.5">
-                  <span className="num text-ink-mute">{member.activationsThisMonth} baru</span>
-                  {member.lastClosedWarmth && (
-                    <Pill
-                      tone={
-                        member.lastClosedWarmth === "WARM"
-                          ? "good"
-                          : member.lastClosedWarmth === "COLD"
-                            ? "warn"
-                            : "accent"
-                      }
-                    >
-                      {member.lastClosedWarmth}
-                    </Pill>
-                  )}
-                </span>
-              }
-            />
-          ))}
-        </Card>
+        <div className="space-y-5">
+          <Card>
+            <div className="grid grid-cols-2 divide-x divide-line border-b border-line">
+              <Stat label="Pelanggan baru" value={team.totals.activations} sub={`sisa ${team.daysLeft} hari`} />
+              <Stat label="Omzet bulan ini" value={fmt(team.totals.gross)} />
+            </div>
+            <div className="grid grid-cols-2 divide-x divide-line">
+              <Stat
+                label="Diam ≥7 hari"
+                value={team.totals.idle}
+                tone={team.totals.idle > 0 ? "warn" : "default"}
+              />
+              <Stat
+                label="Berisiko COLD"
+                value={team.totals.atRisk}
+                tone={team.totals.atRisk > 0 ? "warn" : "default"}
+              />
+            </div>
+          </Card>
+
+          <Card>
+            {team.members.map((m) => (
+              <Row
+                key={m.id}
+                href={`/l2/tim/${m.id}`}
+                label={m.name}
+                sub={`${m.activations}/${m.warmThreshold} baru · ${lastSale(m.daysSinceLastSale)}`}
+                value={fmt(m.gross)}
+                valueSub={
+                  m.activations >= m.warmThreshold ? (
+                    <Pill tone="good">WARM</Pill>
+                  ) : m.coldStreak >= 1 ? (
+                    <Pill tone="warn">Berisiko</Pill>
+                  ) : undefined
+                }
+              />
+            ))}
+          </Card>
+        </div>
       )}
 
       <Sheet

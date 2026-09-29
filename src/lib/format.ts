@@ -65,3 +65,10 @@ export function shiftPeriod(period: string, delta: number): string {
 export function percent(value: number): string {
   return `${Number.isInteger(value) ? value : value.toFixed(1)}%`;
 }
+
+/** "jualan 3 hari lalu" — days since an L1's last activation. */
+export function lastSale(days: number | null): string {
+  if (days === null) return "belum pernah jualan";
+  if (days === 0) return "jualan hari ini";
+  return `jualan ${days} hari lalu`;
+}

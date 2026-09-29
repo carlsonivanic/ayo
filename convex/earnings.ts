@@ -4,6 +4,7 @@ import { QueryCtx, query } from "./_generated/server";
 import { requireL1 } from "./lib/authz";
 import { yPercent, yearBucket } from "./lib/commission";
 import { pctOf } from "./lib/money";
+import { activeOverride, applyPlanOverride } from "./lib/overrides";
 import {
   addMonths,
   periodEnd,
@@ -204,12 +205,14 @@ export const projection = query({
     let counted = 0;
     const byYear: Record<string, number> = { Y1: 0, Y2: 0, Y3: 0 };
     const next12: number[] = Array(12).fill(0);
+    const override = await activeOverride(ctx, l1._id);
 
     for (const merchant of merchants) {
       if (merchant.subscriptionStatus !== "SUBSCRIBED") continue;
       if (!merchant.currentPlanId || !merchant.currentExpiryAt) continue;
-      const plan = await ctx.db.get("productPlans", merchant.currentPlanId);
-      if (!plan || plan.category !== "SUBSCRIPTION" || plan.durationMonths === 0) continue;
+      const stored = await ctx.db.get("productPlans", merchant.currentPlanId);
+      if (!stored || stored.category !== "SUBSCRIPTION" || stored.durationMonths === 0) continue;
+      const plan = applyPlanOverride(stored, override);
 
       const windowEnd = addMonths(
         merchant.firstPaymentAt,

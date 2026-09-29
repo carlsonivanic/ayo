@@ -5,6 +5,7 @@ import { fail } from "./lib/authz";
 import { insertEarning, recordAcquisition, recordMerchantPayment } from "./lib/ledger";
 import { pctOf } from "./lib/money";
 import { notify, notifyAdmins } from "./lib/notify";
+import { planForAgent } from "./lib/overrides";
 import { addDays } from "./lib/period";
 import { getSettings } from "./lib/settings";
 import { randomToken } from "./lib/tokens";
@@ -33,7 +34,8 @@ export async function onLifetimePaid(
 
   // §2.2 — the full one-time commission is recognised at payment, CONFIRMED.
   if (link.l1Id) {
-    const commission = pctOf(link.amount, plan.oneTimePercent);
+    const rated = await planForAgent(ctx, link.l1Id, plan);
+    const commission = pctOf(link.amount, rated.oneTimePercent);
     await insertEarning(ctx, {
       l1Id: link.l1Id,
       date: now,

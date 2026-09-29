@@ -3,6 +3,7 @@ import { query } from "./_generated/server";
 import { requireAdmin, requireL1, requireL2 } from "./lib/authz";
 import { jaminanFor, l1Target, l2EffectivePercent, l2StageFor } from "./lib/commission";
 import { DAY_MS, periodEnd, periodOf, periodStart, shiftPeriod, tenureMonthAt } from "./lib/period";
+import { settingsForL2 } from "./lib/overrides";
 import { getSettings } from "./lib/settings";
 
 const GROSS_TYPES = new Set(["NEW_SALES", "RECURRING", "RENEWAL_INCENTIVE"]);
@@ -227,8 +228,8 @@ export const admin = query({
 export const l2FeePreview = query({
   args: { tenureMonth: v.number() },
   handler: async (ctx, args) => {
-    await requireL2(ctx);
-    const settings = await getSettings(ctx);
+    const l2 = await requireL2(ctx);
+    const settings = await settingsForL2(ctx, l2._id, await getSettings(ctx));
     return {
       stage: l2StageFor(args.tenureMonth, settings),
       percent: l2EffectivePercent(args.tenureMonth, settings),

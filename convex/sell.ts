@@ -5,6 +5,7 @@ import { fail, requireActive, requireL1 } from "./lib/authz";
 import { pctOf } from "./lib/money";
 import { convertQRIS, qrisFrameInfo } from "./lib/qris";
 import { notify } from "./lib/notify";
+import { planForAgent } from "./lib/overrides";
 import { getSettings } from "./lib/settings";
 import { randomToken } from "./lib/tokens";
 import { issueSeatLink } from "./seats";
@@ -376,9 +377,10 @@ export const mySeats = query({
 export const commissionPreview = query({
   args: { planId: v.id("productPlans") },
   handler: async (ctx, args) => {
-    await requireActive(ctx);
-    const plan = await ctx.db.get("productPlans", args.planId);
-    if (!plan) return null;
+    const viewer = await requireActive(ctx);
+    const stored = await ctx.db.get("productPlans", args.planId);
+    if (!stored) return null;
+    const plan = await planForAgent(ctx, viewer._id, stored);
     return {
       amount:
         plan.commissionType === "ONE_TIME"

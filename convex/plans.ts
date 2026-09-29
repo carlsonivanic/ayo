@@ -4,6 +4,7 @@ import { MutationCtx, internalMutation, query } from "./_generated/server";
 import { requireActive } from "./lib/authz";
 import { planLifetimeValue } from "./lib/ltv";
 import { pctOf } from "./lib/money";
+import { activeOverride, applyPlanOverride } from "./lib/overrides";
 import { getSettings } from "./lib/settings";
 
 // §2 product pricing. Commission is percentage-based so it follows price changes
@@ -102,14 +103,16 @@ export const seed = internalMutation({
 export const listSellable = query({
   args: {},
   handler: async (ctx) => {
-    await requireActive(ctx);
+    const viewer = await requireActive(ctx);
     const settings = await getSettings(ctx);
+    const override = await activeOverride(ctx, viewer._id);
     const plans = await ctx.db
       .query("productPlans")
       .withIndex("by_active", (q) => q.eq("active", true))
       .collect();
     return plans
       .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map((stored) => applyPlanOverride(stored, override))
       .map((p) => ({
         id: p._id,
         key: p.key,

@@ -8,6 +8,7 @@ import { jaminanFor, l2EffectivePercent, l2StageFor, warmthFor } from "./lib/com
 import { ensureL1State, insertEarning } from "./lib/ledger";
 import { pctOf } from "./lib/money";
 import { notify } from "./lib/notify";
+import { settingsForL2 } from "./lib/overrides";
 import { periodOf, periodStart, shiftPeriod, tenureMonthAt } from "./lib/period";
 import { getSettings } from "./lib/settings";
 
@@ -151,7 +152,8 @@ export async function closeL1Month(
   let l2FeeBase = 0;
   if (l1.assignedL2Id && tenureMonth >= settings.l2.startMonth) {
     l2FeeBase = settings.l2.includeJaminan ? gross + jaminan : gross;
-    const effectivePercent = l2EffectivePercent(tenureMonth, settings);
+    const l2Settings = await settingsForL2(ctx, l1.assignedL2Id, settings);
+    const effectivePercent = l2EffectivePercent(tenureMonth, l2Settings);
     const l2Fee = pctOf(l2FeeBase, effectivePercent);
     if (l2Fee > 0) {
       await ctx.db.insert("l2EarningLines", {

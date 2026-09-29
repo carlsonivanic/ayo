@@ -32,6 +32,7 @@ function Body() {
   const now = useMemo(() => Date.now(), []);
   const data = useQuery(api.dashboard.l1, { now });
   const outlook = useQuery(api.projection.l1, { now });
+  const followUps = useQuery(api.performance.followUps, { now });
   const fmt = useMoney();
 
   if (!data) return <Loading rows={4} />;
@@ -68,7 +69,9 @@ function Body() {
       {/* Target still governs warmth and the guarantee — it just is not the story. */}
       <Card className="px-4 py-3">
         <div className="flex items-center justify-between gap-3">
-          <p className="eyebrow">Target bulan ke-{data.tenureMonth}</p>
+          <p className="eyebrow">
+            Target bulan ke-{data.tenureMonth} · sisa {daysLeft(now)} hari
+          </p>
           <div className="flex items-center gap-2">
             {data.warmth.active && data.warmth.state && (
               <Pill tone={warmthTone}>{data.warmth.state}</Pill>
@@ -89,6 +92,18 @@ function Body() {
           />
         </div>
       </Card>
+
+      {followUps && followUps.links.length + followUps.expiring.length > 0 && (
+        <Card>
+          <Row
+            href="/l1/tindak"
+            label="Perlu ditindaklanjuti"
+            sub={`${followUps.links.length} link belum dibayar · ${followUps.expiring.length} segera habis`}
+            value={<ArrowRight className="h-4 w-4" />}
+            tone="warn"
+          />
+        </Card>
+      )}
 
       {data.guarantee && (
         <Card className="px-4 py-3">
@@ -171,4 +186,11 @@ function Body() {
       </Link>
     </div>
   );
+}
+
+/** Days left in the current Jakarta month, today included. */
+function daysLeft(now: number) {
+  const d = new Date(now + 7 * 3600000);
+  const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+  return last - d.getUTCDate() + 1;
 }

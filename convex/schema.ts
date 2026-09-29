@@ -188,6 +188,36 @@ export default defineSchema({
     .index("by_key", ["key"])
     .index("by_active", ["active"]),
 
+  // Per-agent special agreements. An absent field follows the global value
+  // (plan percentages for L1, scheme settings for L2). Only lines booked after
+  // a change read it; booked amounts never move.
+  commissionOverrides: defineTable({
+    userId: v.id("users"),
+    active: v.boolean(),
+    plans: v.array(
+      v.object({
+        planId: v.id("productPlans"),
+        y1Percent: v.optional(v.number()),
+        y2Percent: v.optional(v.number()),
+        y3Percent: v.optional(v.number()),
+        y4PlusPercent: v.optional(v.number()),
+        oneTimePercent: v.optional(v.number()),
+      }),
+    ),
+    renewalIncentivePercent: v.optional(v.number()),
+    l2: v.optional(
+      v.object({
+        basePercent: v.optional(v.number()),
+        decayM7_18: v.optional(v.number()),
+        decayM19_30: v.optional(v.number()),
+        decayM31_42: v.optional(v.number()),
+      }),
+    ),
+    note: v.optional(v.string()),
+    updatedAt: v.number(),
+    updatedBy: v.id("users"),
+  }).index("by_user", ["userId"]),
+
   // §4.1-4.4 payment links (subscription) and §4.5 lifetime deep links.
   paymentLinks: defineTable({
     l1Id: v.optional(v.id("users")), // absent = direct purchase (§15.4)

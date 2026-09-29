@@ -2,6 +2,7 @@ import { useMutation, useQuery } from "convex/react";
 import { useRouter } from "next/router";
 import { useState } from "react";
 import { AppShell } from "@/components/AppShell";
+import { CommissionOverride } from "@/components/CommissionOverride";
 import { Guard } from "@/components/Guard";
 import { Button } from "@/components/ui/Button";
 import { Card, Row, SectionTitle } from "@/components/ui/Card";
@@ -128,6 +129,10 @@ function Body() {
               </Field>
             </Card>
           </div>
+        )}
+
+        {(user.role === "L1" || user.role === "L2") && (
+          <CommissionOverride userId={user.id} role={user.role} />
         )}
 
         {user.payoutProfile && (

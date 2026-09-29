@@ -10,6 +10,7 @@
 
 import type * as admin_audit from "../admin/audit.js";
 import type * as admin_ops from "../admin/ops.js";
+import type * as admin_overrides from "../admin/overrides.js";
 import type * as admin_payments from "../admin/payments.js";
 import type * as admin_pricing from "../admin/pricing.js";
 import type * as admin_reports from "../admin/reports.js";
@@ -32,6 +33,7 @@ import type * as lib_ltv from "../lib/ltv.js";
 import type * as lib_mobile from "../lib/mobile.js";
 import type * as lib_money from "../lib/money.js";
 import type * as lib_notify from "../lib/notify.js";
+import type * as lib_overrides from "../lib/overrides.js";
 import type * as lib_period from "../lib/period.js";
 import type * as lib_qris from "../lib/qris.js";
 import type * as lib_settings from "../lib/settings.js";
@@ -43,6 +45,7 @@ import type * as notifications from "../notifications.js";
 import type * as otp from "../otp.js";
 import type * as payments from "../payments.js";
 import type * as payouts from "../payouts.js";
+import type * as performance from "../performance.js";
 import type * as plans from "../plans.js";
 import type * as projection from "../projection.js";
 import type * as registration from "../registration.js";
@@ -62,6 +65,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   "admin/audit": typeof admin_audit;
   "admin/ops": typeof admin_ops;
+  "admin/overrides": typeof admin_overrides;
   "admin/payments": typeof admin_payments;
   "admin/pricing": typeof admin_pricing;
   "admin/reports": typeof admin_reports;
@@ -84,6 +88,7 @@ declare const fullApi: ApiFromModules<{
   "lib/mobile": typeof lib_mobile;
   "lib/money": typeof lib_money;
   "lib/notify": typeof lib_notify;
+  "lib/overrides": typeof lib_overrides;
   "lib/period": typeof lib_period;
   "lib/qris": typeof lib_qris;
   "lib/settings": typeof lib_settings;
@@ -95,6 +100,7 @@ declare const fullApi: ApiFromModules<{
   otp: typeof otp;
   payments: typeof payments;
   payouts: typeof payouts;
+  performance: typeof performance;
   plans: typeof plans;
   projection: typeof projection;
   registration: typeof registration;

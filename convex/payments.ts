@@ -6,6 +6,7 @@ import { generateCodeString } from "./lib/codegen";
 import { insertEarning } from "./lib/ledger";
 import { pctOf } from "./lib/money";
 import { notify, notifyAdmins } from "./lib/notify";
+import { planForAgent } from "./lib/overrides";
 import { addDays } from "./lib/period";
 import { getSettings } from "./lib/settings";
 import { onLifetimePaid } from "./seats";
@@ -118,11 +119,12 @@ async function settle(
 
     // P2 — provisional PENDING earning to the seller at Y1, resolved on redemption.
     if (link.l1Id) {
+      const rated = await planForAgent(ctx, link.l1Id, plan);
       await insertEarning(ctx, {
         l1Id: link.l1Id,
         date: now,
         type: "NEW_SALES",
-        amount: pctOf(link.amount, plan.y1Percent),
+        amount: pctOf(link.amount, rated.y1Percent),
         status: "PENDING",
         planId: plan._id,
         sourceCodeId: codeId,

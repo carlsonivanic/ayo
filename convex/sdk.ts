@@ -5,6 +5,7 @@ import { recurringCommission, renewalIncentive, yearBucket } from "./lib/commiss
 import { insertEarning, recordAcquisition, recordMerchantPayment } from "./lib/ledger";
 import { pctOf } from "./lib/money";
 import { notify, notifyAdmins } from "./lib/notify";
+import { activeOverride, planForAgent, renewalIncentivePercentFor } from "./lib/overrides";
 import { addMonths } from "./lib/period";
 import { getSettings } from "./lib/settings";
 import { activateSeat, issueSeatLink, onLifetimePaid } from "./seats";
@@ -158,7 +159,7 @@ export const redeemSubscriptionCode = internalMutation({
         lastSeenAt: now,
       });
 
-      const amount = pctOf(price, plan.y1Percent);
+      const amount = pctOf(price, (await planForAgent(ctx, code.l1Id, plan)).y1Percent);
       if (code.l1Id) {
         if (pending) {
           await ctx.db.patch("earningLines", pending._id, {
@@ -228,8 +229,9 @@ export const redeemSubscriptionCode = internalMutation({
     const owner = merchant.ownerL1Id
       ? await ctx.db.get("users", merchant.ownerL1Id)
       : null;
+    // Y follows the owner's agreement; the code seller's only affects the incentive.
     const recurring = recurringCommission(
-      plan,
+      await planForAgent(ctx, owner?._id, plan),
       merchant.firstPaymentAt,
       paymentDate,
       price,
@@ -288,7 +290,10 @@ export const redeemSubscriptionCode = internalMutation({
     }
 
     if (code.l1Id) {
-      const incentive = renewalIncentive(price, settings.renewalIncentivePercent);
+      const incentive = renewalIncentive(
+        price,
+        renewalIncentivePercentFor(settings, await activeOverride(ctx, code.l1Id)),
+      );
       if (pending) {
         await ctx.db.patch("earningLines", pending._id, {
           status: "CONFIRMED",
@@ -378,7 +383,7 @@ export const reportSelfRenewal = internalMutation({
       ? await ctx.db.get("users", merchant.ownerL1Id)
       : null;
     const recurring = recurringCommission(
-      plan,
+      await planForAgent(ctx, owner?._id, plan),
       merchant.firstPaymentAt,
       now,
       price,
