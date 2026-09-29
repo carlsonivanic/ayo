@@ -5,6 +5,7 @@ import { audit } from "../lib/audit";
 import { fail, requireAdmin } from "../lib/authz";
 import { assertMobileFree, normalizeMobile } from "../lib/mobile";
 import { notify } from "../lib/notify";
+import { hasSpecialCommission } from "../lib/overrides";
 import { tenureMonthAt } from "../lib/period";
 
 // §19 admin user management. Every mutation derives the admin from the session
@@ -78,9 +79,10 @@ export const list = query({
     return Promise.all(
       filtered
         .sort((a, b) => (b.registeredAt ?? 0) - (a.registeredAt ?? 0))
-        .map(async (u) =>
-          shape(u, u.assignedL2Id ? await ctx.db.get("users", u.assignedL2Id) : null, now),
-        ),
+        .map(async (u) => ({
+          ...shape(u, u.assignedL2Id ? await ctx.db.get("users", u.assignedL2Id) : null, now),
+          specialCommission: await hasSpecialCommission(ctx, u._id),
+        })),
     );
   },
 });

@@ -39,6 +39,20 @@ export async function activeOverride(
   return row?.active ? row : null;
 }
 
+/** Whether an agent is on a special agreement right now — for list badges. */
+export async function hasSpecialCommission(
+  ctx: QueryCtx,
+  userId: Id<"users">,
+): Promise<boolean> {
+  const row = await activeOverride(ctx, userId);
+  return (
+    !!row &&
+    (row.plans.length > 0 ||
+      row.renewalIncentivePercent !== undefined ||
+      (!!row.l2 && Object.values(row.l2).some((n) => n !== undefined)))
+  );
+}
+
 /** The plan with this agent's percentages swapped in. */
 export function applyPlanOverride(
   plan: Doc<"productPlans">,

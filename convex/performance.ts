@@ -1,9 +1,10 @@
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
 import { QueryCtx, query } from "./_generated/server";
-import { fail, requireL1, requireL2 } from "./lib/authz";
+import { fail, requireAdmin, requireL1, requireL2 } from "./lib/authz";
 import { l1Target } from "./lib/commission";
 import { DAY_MS, periodEnd, periodOf, periodStart, shiftPeriod, tenureMonthAt } from "./lib/period";
+import { hasSpecialCommission } from "./lib/overrides";
 import { SchemeSettings as Settings, getSettings } from "./lib/settings";
 
 // Sales performance of one L1: what an L2 coaches on, and what an L1 chases.
@@ -132,30 +133,44 @@ async function teamOf(ctx: QueryCtx, l2Id: Id<"users">) {
     .collect();
 }
 
+type Member = { id: Id<"users">; name: string } & Awaited<ReturnType<typeof snapshot>>;
+
+async function members(ctx: QueryCtx, l1s: Doc<"users">[], now: number, settings: Settings) {
+  const rows: Member[] = await Promise.all(
+    l1s.map(async (l1) => ({
+      id: l1._id,
+      name: l1.name ?? "",
+      ...(await snapshot(ctx, l1, now, settings)),
+    })),
+  );
+  return rows.sort((a, b) => b.activations - a.activations || b.gross - a.gross);
+}
+
+function totals(rows: Member[]) {
+  return {
+    activations: rows.reduce((s, m) => s + m.activations, 0),
+    gross: rows.reduce((s, m) => s + m.gross, 0),
+    idle: rows.filter((m) => m.daysSinceLastSale === null || m.daysSinceLastSale >= 7).length,
+    atRisk: rows.filter((m) => m.activations < m.warmThreshold && m.coldStreak >= 1).length,
+  };
+}
+
+async function teamSummary(ctx: QueryCtx, l2Id: Id<"users">, now: number, settings: Settings) {
+  const rows = await members(ctx, await teamOf(ctx, l2Id), now, settings);
+  const period = periodOf(now);
+  return {
+    daysLeft: Math.ceil((periodEnd(period) - now) / DAY_MS),
+    totals: totals(rows),
+    members: rows,
+  };
+}
+
 /** L2 — team totals plus one row per L1. */
 export const team = query({
   args: { now: v.number() },
   handler: async (ctx, args) => {
     const l2 = await requireL2(ctx);
-    const settings = await getSettings(ctx);
-    const members = await Promise.all(
-      (await teamOf(ctx, l2._id)).map(async (l1) => ({
-        id: l1._id,
-        name: l1.name ?? "",
-        ...(await snapshot(ctx, l1, args.now, settings)),
-      })),
-    );
-    const period = periodOf(args.now);
-    return {
-      daysLeft: Math.ceil((periodEnd(period) - args.now) / DAY_MS),
-      totals: {
-        activations: members.reduce((s, m) => s + m.activations, 0),
-        gross: members.reduce((s, m) => s + m.gross, 0),
-        idle: members.filter((m) => m.daysSinceLastSale === null || m.daysSinceLastSale >= 7).length,
-        atRisk: members.filter((m) => m.activations < m.warmThreshold && m.coldStreak >= 1).length,
-      },
-      members: members.sort((a, b) => b.activations - a.activations || b.gross - a.gross),
-    };
+    return await teamSummary(ctx, l2._id, args.now, await getSettings(ctx));
   },
 });
 
@@ -223,5 +238,99 @@ export const followUps = query({
         .sort((a, b) => byExpiry(b, a))
         .slice(0, 20),
     };
+  },
+});
+
+// --- admin ---------------------------------------------------------------
+
+/** Admin rows also flag special commission agreements; L2s never see this. */
+async function flagged(ctx: QueryCtx, rows: Member[]) {
+  return await Promise.all(
+    rows.map(async (m) => ({ ...m, specialCommission: await hasSpecialCommission(ctx, m.id) })),
+  );
+}
+
+/**
+ * Admin — the whole L2 → L1 tree with this month's numbers, plus each L2's
+ * fee for the last closed month. L1s without an L2 are grouped at the end.
+ */
+export const topology = query({
+  args: { now: v.number() },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    const settings = await getSettings(ctx);
+    const period = periodOf(args.now);
+    const lastClosed = shiftPeriod(period, -1);
+
+    const l2s = await ctx.db
+      .query("users")
+      .withIndex("by_role", (q) => q.eq("role", "L2"))
+      .take(200);
+    const l1s = await ctx.db
+      .query("users")
+      .withIndex("by_role", (q) => q.eq("role", "L1"))
+      .take(2000);
+    const l2Ids = new Set(l2s.map((l2) => l2._id));
+
+    const teams = await Promise.all(
+      l2s.map(async (l2) => {
+        const rows = await members(
+          ctx,
+          l1s.filter((l1) => l1.assignedL2Id === l2._id),
+          args.now,
+          settings,
+        );
+        const fee = await ctx.db
+          .query("monthlyL2Summaries")
+          .withIndex("by_l2_period", (q) => q.eq("l2Id", l2._id).eq("period", lastClosed))
+          .unique();
+        return {
+          id: l2._id,
+          name: l2.name ?? "",
+          status: l2.status ?? "PENDING",
+          specialCommission: await hasSpecialCommission(ctx, l2._id),
+          lastClosedFee: fee?.totalFee ?? 0,
+          totals: totals(rows),
+          members: await flagged(ctx, rows),
+        };
+      }),
+    );
+
+    const unassigned = await members(
+      ctx,
+      l1s.filter((l1) => !l1.assignedL2Id || !l2Ids.has(l1.assignedL2Id)),
+      args.now,
+      settings,
+    );
+
+    return {
+      period,
+      lastClosed,
+      daysLeft: Math.ceil((periodEnd(period) - args.now) / DAY_MS),
+      totals: totals([...teams.flatMap((t) => t.members), ...unassigned]),
+      teams: teams.sort((a, b) => b.totals.gross - a.totals.gross),
+      unassigned: { totals: totals(unassigned), members: await flagged(ctx, unassigned) },
+    };
+  },
+});
+
+/** Admin — one L1's performance, same view an L2 gets. */
+export const adminMember = query({
+  args: { l1Id: v.id("users"), now: v.number() },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    const l1 = await ctx.db.get("users", args.l1Id);
+    if (!l1 || l1.role !== "L1") return null;
+    return await detail(ctx, l1, args.now, await getSettings(ctx));
+  },
+});
+
+/** Admin — one L2's team, same view the L2 gets. */
+export const adminTeam = query({
+  args: { l2Id: v.id("users"), now: v.number() },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx);
+    const team = await teamSummary(ctx, args.l2Id, args.now, await getSettings(ctx));
+    return { ...team, members: await flagged(ctx, team.members) };
   },
 });

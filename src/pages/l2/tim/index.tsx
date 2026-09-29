@@ -4,11 +4,11 @@ import { useMemo, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { Guard } from "@/components/Guard";
 import { Button } from "@/components/ui/Button";
-import { Card, Row, Stat } from "@/components/ui/Card";
-import { Empty, Loading, Pill, Sheet, useToast } from "@/components/ui/Feedback";
+import { TeamMemberRow } from "@/components/L1Performance";
+import { Card, Stat } from "@/components/ui/Card";
+import { Empty, Loading, Sheet, useToast } from "@/components/ui/Feedback";
 import { Input, Textarea } from "@/components/ui/Form";
 import { api } from "@/convex/_generated/api";
-import { lastSale } from "@/lib/format";
 import { useMoney } from "@/lib/useMoney";
 import { errorMessage } from "@/lib/utils";
 
@@ -71,20 +71,7 @@ function Body() {
 
           <Card>
             {team.members.map((m) => (
-              <Row
-                key={m.id}
-                href={`/l2/tim/${m.id}`}
-                label={m.name}
-                sub={`${m.activations}/${m.warmThreshold} baru · ${lastSale(m.daysSinceLastSale)}`}
-                value={fmt(m.gross)}
-                valueSub={
-                  m.activations >= m.warmThreshold ? (
-                    <Pill tone="good">WARM</Pill>
-                  ) : m.coldStreak >= 1 ? (
-                    <Pill tone="warn">Berisiko</Pill>
-                  ) : undefined
-                }
-              />
+              <TeamMemberRow key={m.id} member={m} href={`/l2/tim/${m.id}`} />
             ))}
           </Card>
         </div>

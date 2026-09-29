@@ -38,6 +38,21 @@ type Draft = {
   note: string;
 };
 
+/** List badge for an agent on a special commission agreement. */
+export function SpecialBadge() {
+  return <Pill tone="ink">Khusus</Pill>;
+}
+
+/** Name with the special-commission badge when it applies. */
+export function AgentName({ name, special }: { name: string; special?: boolean }) {
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      <span className="truncate">{name}</span>
+      {special && <SpecialBadge />}
+    </span>
+  );
+}
+
 /** Empty input means "follow global"; anything else is a number. */
 function parse(value: string | undefined): number | undefined {
   if (value === undefined || value.trim() === "") return undefined;

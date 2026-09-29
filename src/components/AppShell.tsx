@@ -11,6 +11,7 @@ import {
   Home,
   Map,
   Megaphone,
+  Network,
   MoreHorizontal,
   Receipt,
   Send,
@@ -62,6 +63,7 @@ const NAV: Record<string, { primary: Item[]; more: Item[] }> = {
       { href: "/admin/payout", label: "Payout", icon: Banknote },
     ],
     more: [
+      { href: "/admin/tim", label: "Tim", icon: Network },
       { href: "/admin/merchant", label: "Merchant", icon: Store },
       { href: "/admin/laporan", label: "Laporan", icon: FileBarChart },
       { href: "/admin/harga", label: "Harga", icon: Tags },

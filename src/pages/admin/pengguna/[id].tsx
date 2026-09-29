@@ -1,13 +1,15 @@
 import { useMutation, useQuery } from "convex/react";
 import { useRouter } from "next/router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { CommissionOverride } from "@/components/CommissionOverride";
+import { L1Performance, TeamMemberRow } from "@/components/L1Performance";
 import { Guard } from "@/components/Guard";
 import { Button } from "@/components/ui/Button";
-import { Card, Row, SectionTitle } from "@/components/ui/Card";
+import { Card, Row, SectionTitle, Stat } from "@/components/ui/Card";
 import { Loading, Pill, Sheet, useToast } from "@/components/ui/Feedback";
 import { Field, Input, Select } from "@/components/ui/Form";
+import { Tabs } from "@/components/ui/Tabs";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { currentPeriod, date, periodLabel } from "@/lib/format";
@@ -40,6 +42,7 @@ function Body() {
   const [reason, setReason] = useState("");
   const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState(false);
+  const [tab, setTab] = useState<"performa" | "pengaturan">("performa");
 
   if (!user) {
     return (
@@ -101,110 +104,128 @@ function Body() {
           </div>
         </Card>
 
-        {user.role === "L1" && (
-          <div>
-            <SectionTitle>Koordinator</SectionTitle>
-            <Card className="p-4">
-              <Field label="L2" hint="Komisi ke depan mengikuti L2 baru; kredit rekrutmen tetap.">
-                <Select
-                  value={user.assignedL2?.id ?? ""}
-                  onChange={(e) =>
-                    void run(
-                      () =>
-                        assignL2({
-                          l1Id: user.id,
-                          l2Id: e.target.value ? (e.target.value as Id<"users">) : undefined,
-                        }),
-                      "Koordinator diperbarui",
-                    )
+        {(user.role === "L1" || user.role === "L2") && (
+          <Tabs
+            value={tab}
+            onChange={setTab}
+            options={[
+              { value: "performa", label: "Performa" },
+              { value: "pengaturan", label: "Pengaturan" },
+            ]}
+          />
+        )}
+
+        {tab === "performa" && user.role === "L1" && <L1Section userId={user.id} />}
+        {tab === "performa" && user.role === "L2" && <L2Section userId={user.id} />}
+
+        {(tab === "pengaturan" || (user.role !== "L1" && user.role !== "L2")) && (
+          <>
+            {user.role === "L1" && (
+              <div>
+                <SectionTitle>Koordinator</SectionTitle>
+                <Card className="p-4">
+                  <Field label="L2" hint="Komisi ke depan mengikuti L2 baru; kredit rekrutmen tetap.">
+                    <Select
+                      value={user.assignedL2?.id ?? ""}
+                      onChange={(e) =>
+                        void run(
+                          () =>
+                            assignL2({
+                              l1Id: user.id,
+                              l2Id: e.target.value ? (e.target.value as Id<"users">) : undefined,
+                            }),
+                          "Koordinator diperbarui",
+                        )
+                      }
+                    >
+                      <option value="">Tanpa L2</option>
+                      {(l2Options ?? []).map((l2) => (
+                        <option key={l2.id} value={l2.id}>
+                          {l2.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                </Card>
+              </div>
+            )}
+
+            {(user.role === "L1" || user.role === "L2") && (
+              <CommissionOverride userId={user.id} role={user.role} />
+            )}
+
+            {user.payoutProfile && (
+              <div>
+                <SectionTitle>Rekening</SectionTitle>
+                <Card>
+                  <Row label={user.payoutProfile.bankName} value={user.payoutProfile.accountNumber} />
+                  <Row label="Atas nama" value={user.payoutProfile.accountName} />
+                </Card>
+              </div>
+            )}
+
+            {user.summaries.length > 0 && (
+              <div>
+                <SectionTitle>Riwayat bulanan</SectionTitle>
+                <Card>
+                  {user.summaries.map((summary) => (
+                    <Row
+                      key={summary.period}
+                      label={periodLabel(summary.period)}
+                      sub={`${summary.activations} akuisisi${summary.warmthState ? ` · ${summary.warmthState}` : ""}`}
+                      value={fmt(summary.gross)}
+                      valueSub={
+                        summary.heldAmount > 0
+                          ? `held ${fmt(summary.heldAmount)}`
+                          : summary.jaminan > 0
+                            ? `jaminan ${fmt(summary.jaminan)}`
+                            : undefined
+                      }
+                    />
+                  ))}
+                </Card>
+              </div>
+            )}
+
+            <div className="space-y-3">
+              <Button
+                variant="quiet"
+                block
+                onClick={() => {
+                  setForm({ name: user.name, email: user.email, mobile: user.mobile });
+                  setSheet("edit");
+                }}
+              >
+                Ubah data
+              </Button>
+              {user.role === "L1" && (
+                <Button variant="quiet" block onClick={() => setSheet("held")}>
+                  Rilis held money manual
+                </Button>
+              )}
+              {user.role !== "ADMIN" && (
+                <Button variant="quiet" block onClick={() => setSheet("adjust")}>
+                  Buat penyesuaian
+                </Button>
+              )}
+              {user.status === "ACTIVE" ? (
+                <Button variant="danger" block onClick={() => setSheet("suspend")}>
+                  Tangguhkan akun
+                </Button>
+              ) : user.status === "SUSPENDED" ? (
+                <Button
+                  variant="quiet"
+                  block
+                  onClick={() =>
+                    void run(() => setStatus({ userId: user.id, status: "ACTIVE" }), "Akun aktif")
                   }
                 >
-                  <option value="">Tanpa L2</option>
-                  {(l2Options ?? []).map((l2) => (
-                    <option key={l2.id} value={l2.id}>
-                      {l2.name}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-            </Card>
-          </div>
+                  Aktifkan kembali
+                </Button>
+              ) : null}
+            </div>
+          </>
         )}
-
-        {(user.role === "L1" || user.role === "L2") && (
-          <CommissionOverride userId={user.id} role={user.role} />
-        )}
-
-        {user.payoutProfile && (
-          <div>
-            <SectionTitle>Rekening</SectionTitle>
-            <Card>
-              <Row label={user.payoutProfile.bankName} value={user.payoutProfile.accountNumber} />
-              <Row label="Atas nama" value={user.payoutProfile.accountName} />
-            </Card>
-          </div>
-        )}
-
-        {user.summaries.length > 0 && (
-          <div>
-            <SectionTitle>Riwayat bulanan</SectionTitle>
-            <Card>
-              {user.summaries.map((summary) => (
-                <Row
-                  key={summary.period}
-                  label={periodLabel(summary.period)}
-                  sub={`${summary.activations} akuisisi${summary.warmthState ? ` · ${summary.warmthState}` : ""}`}
-                  value={fmt(summary.gross)}
-                  valueSub={
-                    summary.heldAmount > 0
-                      ? `held ${fmt(summary.heldAmount)}`
-                      : summary.jaminan > 0
-                        ? `jaminan ${fmt(summary.jaminan)}`
-                        : undefined
-                  }
-                />
-              ))}
-            </Card>
-          </div>
-        )}
-
-        <div className="space-y-3">
-          <Button
-            variant="quiet"
-            block
-            onClick={() => {
-              setForm({ name: user.name, email: user.email, mobile: user.mobile });
-              setSheet("edit");
-            }}
-          >
-            Ubah data
-          </Button>
-          {user.role === "L1" && (
-            <Button variant="quiet" block onClick={() => setSheet("held")}>
-              Rilis held money manual
-            </Button>
-          )}
-          {user.role !== "ADMIN" && (
-            <Button variant="quiet" block onClick={() => setSheet("adjust")}>
-              Buat penyesuaian
-            </Button>
-          )}
-          {user.status === "ACTIVE" ? (
-            <Button variant="danger" block onClick={() => setSheet("suspend")}>
-              Tangguhkan akun
-            </Button>
-          ) : user.status === "SUSPENDED" ? (
-            <Button
-              variant="quiet"
-              block
-              onClick={() =>
-                void run(() => setStatus({ userId: user.id, status: "ACTIVE" }), "Akun aktif")
-              }
-            >
-              Aktifkan kembali
-            </Button>
-          ) : null}
-        </div>
       </div>
 
       <Sheet
@@ -357,5 +378,63 @@ function Body() {
         </div>
       </Sheet>
     </AppShell>
+  );
+}
+
+function L1Section({ userId }: { userId: Id<"users"> }) {
+  const now = useMemo(() => Date.now(), []);
+  const data = useQuery(api.performance.adminMember, { l1Id: userId, now });
+  if (data === undefined) return <Loading rows={4} />;
+  if (data === null) return null;
+  return <L1Performance data={data} />;
+}
+
+function L2Section({ userId }: { userId: Id<"users"> }) {
+  const now = useMemo(() => Date.now(), []);
+  const team = useQuery(api.performance.adminTeam, { l2Id: userId, now });
+  const fmt = useMoney();
+  if (!team) return <Loading rows={4} />;
+  return (
+    <div className="space-y-5">
+      <Card>
+        <div className="grid grid-cols-2 divide-x divide-line border-b border-line">
+          <Stat
+            label="Pelanggan baru"
+            value={team.totals.activations}
+            sub={`sisa ${team.daysLeft} hari`}
+          />
+          <Stat label="Omzet tim" value={fmt(team.totals.gross)} />
+        </div>
+        <div className="grid grid-cols-2 divide-x divide-line">
+          <Stat
+            label="Diam ≥7 hari"
+            value={team.totals.idle}
+            tone={team.totals.idle > 0 ? "warn" : "default"}
+          />
+          <Stat
+            label="Berisiko COLD"
+            value={team.totals.atRisk}
+            tone={team.totals.atRisk > 0 ? "warn" : "default"}
+          />
+        </div>
+      </Card>
+      <div>
+        <SectionTitle>{`Tim (${team.members.length})`}</SectionTitle>
+        <Card>
+          {team.members.length === 0 ? (
+            <Row label="Belum ada L1" tone="mute" />
+          ) : (
+            team.members.map((m) => (
+              <TeamMemberRow
+                key={m.id}
+                member={m}
+                special={m.specialCommission}
+                href={`/admin/pengguna/${m.id}`}
+              />
+            ))
+          )}
+        </Card>
+      </div>
+    </div>
   );
 }

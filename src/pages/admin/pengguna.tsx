@@ -3,6 +3,7 @@ import { UserPlus } from "lucide-react";
 import { useRouter } from "next/router";
 import { useState } from "react";
 import { AppShell } from "@/components/AppShell";
+import { AgentName } from "@/components/CommissionOverride";
 import { Guard } from "@/components/Guard";
 import { Button } from "@/components/ui/Button";
 import { Card, Row, SectionTitle } from "@/components/ui/Card";
@@ -88,7 +89,7 @@ function Body() {
           {users.map((user) => (
             <Row
               key={user.id}
-              label={user.name || user.email}
+              label={<AgentName name={user.name || user.email} special={user.specialCommission} />}
               sub={[
                 user.email,
                 user.assignedL2 ? `L2 ${user.assignedL2.name}` : null,
