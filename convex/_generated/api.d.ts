@@ -52,6 +52,7 @@ import type * as registration from "../registration.js";
 import type * as sdk from "../sdk.js";
 import type * as seats from "../seats.js";
 import type * as seed from "../seed.js";
+import type * as selfRenew from "../selfRenew.js";
 import type * as sell from "../sell.js";
 import type * as team from "../team.js";
 import type * as users from "../users.js";
@@ -107,6 +108,7 @@ declare const fullApi: ApiFromModules<{
   sdk: typeof sdk;
   seats: typeof seats;
   seed: typeof seed;
+  selfRenew: typeof selfRenew;
   sell: typeof sell;
   team: typeof team;
   users: typeof users;

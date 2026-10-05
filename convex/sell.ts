@@ -29,7 +29,7 @@ async function ensureProfileComplete(ctx: MutationCtx, userId: Id<"users">) {
  * the bank mutasi to one link. Collisions are only checked against links that
  * are still open, which is the only window where two could be confused.
  */
-async function uniquePaymentAmount(
+export async function uniquePaymentAmount(
   ctx: MutationCtx,
   base: number,
   max: number,

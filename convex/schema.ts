@@ -263,6 +263,9 @@ export default defineSchema({
     verifiedBy: v.optional(v.id("users")),
     rejectedAt: v.optional(v.number()),
     rejectionReason: v.optional(v.string()),
+    // The merchant renewed from inside SellMore with no agent in between.
+    // The store is known up front, so the link is bound to it.
+    source: v.optional(v.literal("SELF_RENEW")),
   })
     .index("by_token", ["token"])
     .index("by_l1", ["l1Id"])
@@ -271,7 +274,8 @@ export default defineSchema({
     .index("by_paidAt", ["paidAt"])
     .index("by_idempotency", ["idempotencyKey"])
     .index("by_verification", ["verification", "proofUploadedAt"])
-    .index("by_qris_amount", ["qrisAmount", "status"]),
+    .index("by_qris_amount", ["qrisAmount", "status"])
+    .index("by_store_source", ["buyerSellMoreStoreId", "source", "status"]),
 
   // §5 codes — subscription products only.
   subscriptionCodes: defineTable({
@@ -291,6 +295,11 @@ export default defineSchema({
       v.union(v.literal("FIRST_ACTIVATION"), v.literal("RENEWAL")),
     ),
     priceAtIssue: v.number(),
+    // Merchant period before and after a renewal, so a rejected self-renew
+    // payment can hand back exactly what it gave.
+    previousExpiryAt: v.optional(v.number()),
+    previousPlanId: v.optional(v.id("productPlans")),
+    resultExpiryAt: v.optional(v.number()),
   })
     .index("by_code", ["code"])
     .index("by_expiry_status", ["status", "expiresAt"])

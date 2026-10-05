@@ -1,11 +1,11 @@
 import { v } from "convex/values";
 import { Doc } from "../_generated/dataModel";
-import { QueryCtx, mutation, query } from "../_generated/server";
+import { MutationCtx, QueryCtx, mutation, query } from "../_generated/server";
 import { audit } from "../lib/audit";
 import { fail, requireAdmin } from "../lib/authz";
 import { insertEarning } from "../lib/ledger";
 import { notify } from "../lib/notify";
-import { periodEnd, periodOf, periodStart } from "../lib/period";
+import { addMonths, periodEnd, periodOf, periodStart } from "../lib/period";
 
 // Payment-level view: where a refund exception is raised (§10.4) and, while
 // settlement is manual, where every QRIS transfer is confirmed or rejected.
@@ -32,7 +32,11 @@ async function shapePayment(ctx: QueryCtx, link: Doc<"paymentLinks">) {
     paidAt: link.paidAt ?? link.createdAt,
     createdAt: link.createdAt,
     sellerId: link.l1Id ?? null,
-    sellerName: seller?.name ?? "Tanpa agen",
+    sellerName: seller?.name ?? (link.source === "SELF_RENEW" ? "Self-renew" : "Tanpa agen"),
+    selfRenew: link.source === "SELF_RENEW",
+    storeName: link.buyerMerchantId
+      ? ((await ctx.db.get("merchants", link.buyerMerchantId))?.storeName ?? link.buyerSellMoreStoreId ?? null)
+      : null,
     refunded: !!link.refundedAt,
     verification: link.verification ?? null,
     verifiedAt: link.verifiedAt ?? null,
@@ -50,6 +54,35 @@ async function shapePayment(ctx: QueryCtx, link: Doc<"paymentLinks">) {
     })),
     seats: seats.map((s) => ({ id: s._id, seatIndex: s.seatIndex, status: s.status })),
   };
+}
+
+/**
+ * A self-renew paid with a rejected receipt takes its period back. When no
+ * later renewal has stacked on top, the merchant returns to exactly where it
+ * was; otherwise only this code's months come off. The device learns on its
+ * next /api/v1/validate sync.
+ */
+async function revokeSelfRenewal(
+  ctx: MutationCtx,
+  code: Doc<"subscriptionCodes">,
+): Promise<boolean> {
+  if (code.redemptionType !== "RENEWAL" || !code.merchantId) return false;
+  const merchant = await ctx.db.get("merchants", code.merchantId);
+  if (!merchant || merchant.subscriptionStatus === "LIFETIME") return false;
+
+  if (code.resultExpiryAt !== undefined && merchant.currentExpiryAt === code.resultExpiryAt) {
+    await ctx.db.patch("merchants", merchant._id, {
+      currentExpiryAt: code.previousExpiryAt,
+      currentPlanId: code.previousPlanId ?? merchant.currentPlanId,
+    });
+    return true;
+  }
+  const plan = await ctx.db.get("productPlans", code.planId);
+  if (!plan || !merchant.currentExpiryAt) return false;
+  await ctx.db.patch("merchants", merchant._id, {
+    currentExpiryAt: addMonths(merchant.currentExpiryAt, -plan.durationMonths),
+  });
+  return true;
 }
 
 /** Full sales history for a period: who sold what, for how much, proof, code. */
@@ -135,7 +168,11 @@ export const verifyPayment = mutation({
       .withIndex("by_link", (q) => q.eq("sourceLinkId", link._id))
       .collect();
     for (const line of lines) {
-      if (line.frozen) await ctx.db.patch("earningLines", line._id, { frozen: undefined });
+      if (!line.frozen) continue;
+      // A suspended owner's line stays frozen for its own reason (§14.3).
+      const earner = await ctx.db.get("users", line.l1Id);
+      if (earner?.status === "SUSPENDED") continue;
+      await ctx.db.patch("earningLines", line._id, { frozen: undefined });
     }
 
     if (link.l1Id) {
@@ -195,11 +232,13 @@ export const rejectPayment = mutation({
       .withIndex("by_payment_link", (q) => q.eq("paymentLinkId", link._id))
       .collect();
     let redeemed = 0;
+    let revoked = 0;
     for (const code of codes) {
       if (code.status === "UNUSED") {
         await ctx.db.patch("subscriptionCodes", code._id, { status: "EXPIRED" });
       } else if (code.status === "USED") {
         redeemed++;
+        if (link.source === "SELF_RENEW" && (await revokeSelfRenewal(ctx, code))) revoked++;
       }
     }
 
@@ -275,9 +314,9 @@ export const rejectPayment = mutation({
       adminId: admin._id,
       action: "REJECT_PAYMENT",
       object: `paymentLink:${link._id}`,
-      newValue: { reversed, redeemedCodes: redeemed, activatedSeats },
+      newValue: { reversed, redeemedCodes: redeemed, activatedSeats, revoked },
       reason,
     });
-    return { reversed, redeemedCodes: redeemed, activatedSeats };
+    return { reversed, redeemedCodes: redeemed, activatedSeats, revoked };
   },
 });

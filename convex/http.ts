@@ -72,6 +72,10 @@ const ERROR_COPY: Record<string, { status: number; message: string }> = {
     message: "Pembayaran lewat aplikasi belum aktif. Hubungi agen Anda.",
   },
   NOT_PROSPECT: { status: 409, message: "Toko sudah berlangganan." },
+  rate_limited: { status: 429, message: "Terlalu banyak percobaan. Coba lagi nanti." },
+  plan_not_allowed: { status: 409, message: "Paket tidak bisa dipilih." },
+  qris_not_configured: { status: 503, message: "Pembayaran QRIS belum tersedia." },
+  invalid_proof: { status: 400, message: "Bukti bayar harus berupa gambar maks. 5 MB." },
 };
 
 function errorResponse(code: string): Response {
@@ -255,6 +259,80 @@ const routes: Record<string, ReturnType<typeof sdkRoute>> = {
     return json({ seats: await ctx.runQuery(internal.sdk.seatPool, { storeId }) });
   }),
 };
+
+// ---------------------------------------------------------------------------
+// Self renewal from inside SellMore (QRIS + receipt, no agent).
+// ---------------------------------------------------------------------------
+
+const MAX_PROOF_BYTES = 5 * 1024 * 1024;
+
+function clientIp(req: Request): string {
+  const forwarded = req.headers.get("x-forwarded-for");
+  return (
+    forwarded?.split(",")[0]?.trim() ||
+    req.headers.get("x-real-ip") ||
+    req.headers.get("cf-connecting-ip") ||
+    "unknown"
+  );
+}
+
+const selfRenewCreate = httpAction(async (ctx, req) => {
+  if (apiKeyRejected(req)) return json({ error: "unauthorized" }, 401);
+  const body = await readJson(req);
+  const storeId = body ? str(body.storeId) : undefined;
+  const planKey = body ? str(body.planKey) : undefined;
+  if (!storeId || !planKey) return json({ error: "bad_request" }, 400);
+  const result = await ctx.runMutation(internal.selfRenew.createLink, {
+    storeId,
+    planKey,
+    ip: clientIp(req),
+  });
+  if (!result.ok) return errorResponse(result.error);
+  return json(result.link);
+});
+http.route({ path: "/sdk/self-renew/create", method: "OPTIONS", handler: preflight });
+http.route({ path: "/sdk/self-renew/create", method: "POST", handler: selfRenewCreate });
+
+routes["/sdk/self-renew/offer"] = sdkRoute(async (ctx, body) => {
+  const storeId = str(body.storeId);
+  if (!storeId) return json({ error: "bad_request" }, 400);
+  const result = await ctx.runQuery(internal.selfRenew.offer, { storeId });
+  if (!result.ok) return errorResponse(result.error);
+  return json(result);
+});
+
+// Not a JSON route: the receipt arrives as multipart/form-data.
+const selfRenewProof = httpAction(async (ctx, req) => {
+  if (apiKeyRejected(req)) return json({ error: "unauthorized" }, 401);
+  let form: FormData;
+  try {
+    form = await req.formData();
+  } catch {
+    return json({ error: "bad_request" }, 400);
+  }
+  const storeId = str(form.get("storeId"));
+  const token = str(form.get("token"));
+  const file = form.get("file");
+  if (!storeId || !token || !(file instanceof Blob)) return json({ error: "bad_request" }, 400);
+  if (!file.type.startsWith("image/") || file.size === 0 || file.size > MAX_PROOF_BYTES) {
+    return errorResponse("invalid_proof");
+  }
+
+  const storageId = await ctx.storage.store(file);
+  const result = await ctx.runMutation(internal.selfRenew.submitProof, {
+    storeId,
+    token,
+    storageId,
+    ip: clientIp(req),
+  });
+  if (!result.ok) {
+    await ctx.storage.delete(storageId);
+    return errorResponse(result.error);
+  }
+  return json(result);
+});
+http.route({ path: "/sdk/self-renew/proof", method: "OPTIONS", handler: preflight });
+http.route({ path: "/sdk/self-renew/proof", method: "POST", handler: selfRenewProof });
 
 for (const [path, handler] of Object.entries(routes)) {
   http.route({ path, method: "OPTIONS", handler: preflight });

@@ -14,7 +14,7 @@ import { currentPeriod, date, dateTime } from "@/lib/format";
 import { useMoney } from "@/lib/useMoney";
 import { errorMessage } from "@/lib/utils";
 
-type Tab = "verifikasi" | "riwayat" | "kode";
+type Tab = "verifikasi" | "riwayat" | "selfrenew" | "kode";
 
 const VERIFICATION_PILL = {
   PENDING: { tone: "warn", label: "Menunggu" },
@@ -39,7 +39,7 @@ function Body() {
   );
   const payments = useQuery(
     api.admin.payments.list,
-    tab === "riwayat" ? { period } : "skip",
+    tab === "riwayat" || tab === "selfrenew" ? { period } : "skip",
   );
   const expired = useQuery(api.admin.payments.expiredCodes, tab === "kode" ? {} : "skip");
   const reissue = useMutation(api.admin.ops.reissueExpiredCode);
@@ -48,6 +48,7 @@ function Body() {
 
   const [selected, setSelected] = useState<string | null>(null);
   const active = [...(queue ?? []), ...(payments ?? [])].find((p) => p.id === selected);
+  const selfRenewals = payments?.filter((p) => p.selfRenew);
 
   return (
     <AppShell title="Pembayaran">
@@ -57,6 +58,7 @@ function Body() {
         options={[
           { value: "verifikasi", label: `Verifikasi${queue?.length ? ` (${queue.length})` : ""}` },
           { value: "riwayat", label: "Riwayat" },
+          { value: "selfrenew", label: "Self-renew" },
           { value: "kode", label: "Kode kedaluwarsa" },
         ]}
       />
@@ -72,7 +74,7 @@ function Body() {
               <Row
                 key={payment.id}
                 label={payment.planName}
-                sub={`${payment.sellerName} · ${dateTime(payment.proofUploadedAt)}`}
+                sub={`${payment.selfRenew ? `Self-renew · ${payment.storeName ?? "—"}` : payment.sellerName} · ${dateTime(payment.proofUploadedAt)}`}
                 value={fmt(payment.qrisAmount)}
                 valueSub={<Pill tone="warn">Menunggu</Pill>}
                 onClick={() => setSelected(payment.id)}
@@ -102,6 +104,38 @@ function Body() {
                     payment.refunded ? (
                       <Pill tone="warn">Refund</Pill>
                     ) : payment.verification ? (
+                      <Pill tone={VERIFICATION_PILL[payment.verification].tone}>
+                        {VERIFICATION_PILL[payment.verification].label}
+                      </Pill>
+                    ) : undefined
+                  }
+                  onClick={() => setSelected(payment.id)}
+                />
+              ))}
+            </Card>
+          )}
+        </>
+      )}
+
+      {tab === "selfrenew" && (
+        <>
+          <div className="mb-4 flex justify-end">
+            <PeriodPicker value={period} onChange={setPeriod} />
+          </div>
+          {!selfRenewals ? (
+            <Loading rows={5} />
+          ) : selfRenewals.length === 0 ? (
+            <Empty title="Belum ada self-renew di periode ini." />
+          ) : (
+            <Card>
+              {selfRenewals.map((payment) => (
+                <Row
+                  key={payment.id}
+                  label={payment.storeName ?? "—"}
+                  sub={`${payment.planName} · ${dateTime(payment.paidAt)}`}
+                  value={fmt(payment.qrisAmount)}
+                  valueSub={
+                    payment.verification ? (
                       <Pill tone={VERIFICATION_PILL[payment.verification].tone}>
                         {VERIFICATION_PILL[payment.verification].label}
                       </Pill>
@@ -192,7 +226,9 @@ function Detail({ payment, onClose }: { payment: Payment; onClose: () => void })
     <Sheet open onClose={onClose} title={payment.planName}>
       <div className="space-y-5">
         <div>
-          <p className="eyebrow">{payment.sellerName}</p>
+          <p className="eyebrow">
+            {payment.selfRenew ? `Self-renew · ${payment.storeName ?? "—"}` : payment.sellerName}
+          </p>
           <p className="num mt-1 text-[26px] font-semibold">{fmt(payment.amount)}</p>
           <p className="mt-1 text-[13px] text-ink-mute">
             Ditransfer {fmt(payment.qrisAmount)} · {dateTime(payment.paidAt)}
@@ -268,7 +304,14 @@ function Detail({ payment, onClose }: { payment: Payment; onClose: () => void })
             >
               Dana diterima
             </Button>
-            <Field label="Alasan tolak" hint="Kode dimatikan dan komisi dibatalkan.">
+            <Field
+              label="Alasan tolak"
+              hint={
+                payment.selfRenew
+                  ? "Kode dimatikan, komisi dibatalkan, dan masa aktif toko dicabut."
+                  : "Kode dimatikan dan komisi dibatalkan."
+              }
+            >
               <Input value={reason} onChange={(e) => setReason(e.target.value)} />
             </Field>
             <Button
