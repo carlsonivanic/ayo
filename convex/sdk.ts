@@ -136,6 +136,14 @@ export const redeemSubscriptionCode = internalMutation({
       return { ok: false, error: "path_locked" };
     }
 
+    // Commission from an unverified QRIS receipt stays frozen until an admin
+    // confirms the transfer, and is tied to the link so verify/reject find it.
+    const link = code.paymentLinkId
+      ? await ctx.db.get("paymentLinks", code.paymentLinkId)
+      : null;
+    const sourceLinkId = link?._id;
+    const unverified = link?.verification === "PENDING";
+
     const pending = code.l1Id
       ? await ctx.db
           .query("earningLines")
@@ -178,6 +186,8 @@ export const redeemSubscriptionCode = internalMutation({
             planId: plan._id,
             merchantId,
             sourceCodeId: code._id,
+            sourceLinkId,
+            frozen: unverified || undefined,
           });
         }
         await recordAcquisition(ctx, {
@@ -250,7 +260,8 @@ export const redeemSubscriptionCode = internalMutation({
         planId: plan._id,
         merchantId: merchant._id,
         sourceCodeId: code._id,
-        frozen: frozen || undefined,
+        sourceLinkId,
+        frozen: frozen || unverified || undefined,
       });
       if (frozen) {
         await notifyAdmins(
@@ -311,6 +322,8 @@ export const redeemSubscriptionCode = internalMutation({
           planId: plan._id,
           merchantId: merchant._id,
           sourceCodeId: code._id,
+          sourceLinkId,
+          frozen: unverified || undefined,
         });
       }
       await notify(
@@ -336,6 +349,9 @@ export const redeemSubscriptionCode = internalMutation({
       storeName: args.storeName ?? merchant.storeName,
       merchantId: merchant._id,
       redemptionType: "RENEWAL",
+      previousExpiryAt: merchant.currentExpiryAt,
+      previousPlanId: merchant.currentPlanId,
+      resultExpiryAt: expiry,
     });
 
     return {

@@ -53,7 +53,7 @@ export type PaymentResult =
   | { ok: true; code?: string; linkId: Id<"paymentLinks"> }
   | { ok: false; reason: string };
 
-async function settle(
+export async function settle(
   ctx: MutationCtx,
   link: Doc<"paymentLinks">,
   opts: {
