@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { Doc } from "./_generated/dataModel";
 import { MutationCtx, QueryCtx, internalMutation, internalQuery } from "./_generated/server";
 import { fail, rateLimit } from "./lib/authz";
+import { addMonths } from "./lib/period";
 import { convertQRIS, qrisFrameInfo } from "./lib/qris";
 import { getSettings } from "./lib/settings";
 import { randomToken } from "./lib/tokens";
@@ -38,22 +39,13 @@ function renewalAmount(plan: Doc<"productPlans">): number {
   return plan.renewalPrice ?? plan.price;
 }
 
-/**
- * Plans a merchant may renew onto. Subscriptions only — lifetime goes through
- * its own seat flow — and never a shorter period than the current one.
- */
-async function renewablePlans(ctx: QueryCtx, merchant: Doc<"merchants">) {
-  const current = merchant.currentPlanId
-    ? await ctx.db.get("productPlans", merchant.currentPlanId)
-    : null;
-  const floor = current?.category === "SUBSCRIPTION" ? current.durationMonths : 0;
+/** Subscription plans a merchant may renew onto, any length, either direction. */
+async function renewablePlans(ctx: QueryCtx) {
   const plans = await ctx.db
     .query("productPlans")
     .withIndex("by_active", (q) => q.eq("active", true))
     .collect();
-  return plans
-    .filter((p) => p.category === "SUBSCRIPTION" && p.durationMonths >= floor)
-    .sort((a, b) => a.sortOrder - b.sortOrder);
+  return plans.filter((p) => p.category === "SUBSCRIPTION").sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
 async function openSelfRenewLink(ctx: QueryCtx, storeId: string) {
@@ -112,9 +104,14 @@ export const offer = internalQuery({
     const current = merchant.currentPlanId
       ? await ctx.db.get("productPlans", merchant.currentPlanId)
       : null;
-    const plans = await renewablePlans(ctx, merchant);
+    const plans = await renewablePlans(ctx);
     const open = await openSelfRenewLink(ctx, args.storeId);
     const openPlan = open ? await ctx.db.get("productPlans", open.planId) : null;
+
+    // Same base as sdk.ts nextExpiry: an unexpired period is extended, not reset.
+    const now = Date.now();
+    const base =
+      merchant.currentExpiryAt && merchant.currentExpiryAt > now ? merchant.currentExpiryAt : now;
 
     return {
       ok: true as const,
@@ -125,6 +122,8 @@ export const offer = internalQuery({
         name: p.name,
         amount: renewalAmount(p),
         durationMonths: p.durationMonths,
+        durationDays: Math.round((addMonths(base, p.durationMonths) - base) / 86_400_000),
+        newExpiresAt: addMonths(base, p.durationMonths),
       })),
       openLink: open && openPlan ? shapeLink(open, openPlan) : null,
       instructions: settings.qris.instructions ?? null,
@@ -148,7 +147,7 @@ export const createLink = internalMutation({
       return { ok: false as const, error: "path_locked" };
     }
 
-    const plans = await renewablePlans(ctx, merchant);
+    const plans = await renewablePlans(ctx);
     const plan = plans.find((p) => p.key === args.planKey);
     if (!plan) return { ok: false as const, error: "plan_not_allowed" };
 

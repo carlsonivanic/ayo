@@ -120,7 +120,7 @@ const linkOf = (c: Ctx, token: string) =>
   );
 
 describe("self renewal from SellMore", () => {
-  test("offer lists only plans at or above the current one, at AYO's renewal price", async () => {
+  test("offer lists every subscription plan, at AYO's renewal price, with the resulting expiry", async () => {
     const c = await setup();
     await activateViaOwner(c);
     await c.t.run(async (ctx) => {
@@ -139,10 +139,16 @@ describe("self renewal from SellMore", () => {
     await selfRenew(c, "YEARLY");
     const after = await c.t.query(internal.selfRenew.offer, { storeId: STORE });
     if (!after.ok) throw new Error(after.error);
-    expect(after.plans.map((p) => p.key)).toEqual(["YEARLY"]);
+    expect(after.plans.map((p) => p.key)).toEqual(["MONTHLY", "YEARLY"]);
+    const monthly = after.plans.find((p) => p.key === "MONTHLY")!;
+    const yearly = after.plans.find((p) => p.key === "YEARLY")!;
+    expect(monthly.durationDays).toBeGreaterThanOrEqual(28);
+    expect(monthly.durationDays).toBeLessThanOrEqual(31);
+    expect(yearly.durationDays).toBeGreaterThanOrEqual(365);
+    expect(yearly.newExpiresAt).toBeGreaterThan(monthly.newExpiresAt);
   });
 
-  test("a downgrade is refused", async () => {
+  test("a yearly merchant can step back down to monthly", async () => {
     const c = await setup();
     await activateViaOwner(c);
     await selfRenew(c, "YEARLY");
@@ -151,7 +157,7 @@ describe("self renewal from SellMore", () => {
       planKey: "MONTHLY",
       ip: IP,
     });
-    expect(result).toEqual({ ok: false, error: "plan_not_allowed" });
+    expect(result.ok).toBe(true);
   });
 
   test("an unknown store cannot self renew", async () => {
