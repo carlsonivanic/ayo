@@ -1,4 +1,5 @@
 import { useMutation, useQuery } from "convex/react";
+import { FunctionReturnType } from "convex/server";
 import { ClipboardList, Download } from "lucide-react";
 import { useMemo, useState } from "react";
 import { AppShell } from "@/components/AppShell";
@@ -15,12 +16,9 @@ import { date, dateTime, periodLabel } from "@/lib/format";
 import { useMoney } from "@/lib/useMoney";
 import { copy, downloadCsv, errorMessage } from "@/lib/utils";
 
-type Tab = "SCHEDULED" | "PAID" | "FAILED";
-type Line = NonNullable<ReturnType<typeof useLines>>[number];
-
-function useLines(status: Tab, role: "L1" | "L2" | undefined) {
-  return useQuery(api.payouts.adminList, { status, role });
-}
+type Status = "SCHEDULED" | "PAID" | "FAILED";
+type Tab = Status | "AGENTS";
+type Line = FunctionReturnType<typeof api.payouts.adminList>[number];
 
 export default function AdminPayoutPage() {
   return (
@@ -33,7 +31,10 @@ export default function AdminPayoutPage() {
 function Body() {
   const [tab, setTab] = useState<Tab>("SCHEDULED");
   const [role, setRole] = useState<"L1" | "L2" | undefined>(undefined);
-  const lines = useLines(tab, role);
+  const lines = useQuery(
+    api.payouts.adminList,
+    tab === "AGENTS" ? "skip" : { status: tab, role },
+  );
   const summary = useQuery(api.payouts.summary);
   const missing = useQuery(api.payouts.missingProfiles);
   const runPayouts = useMutation(api.payouts.runPayouts);
@@ -126,7 +127,7 @@ function Body() {
       }
     >
       {summary && (
-        <Card className="mb-5 grid grid-cols-2 sm:grid-cols-3">
+        <Card className="mb-5 grid grid-cols-2 sm:grid-cols-4">
           <Stat
             label="Bayar minggu ini"
             value={fmt(summary.due.total)}
@@ -144,9 +145,14 @@ function Body() {
             tone="good"
           />
           <Stat
-            label="Berikutnya"
-            value={fmt(summary.later.total)}
-            sub={`${summary.later.count} orang`}
+            label="Belum dijadwalkan"
+            value={fmt(summary.unscheduled.total + summary.later.total)}
+            sub={`${summary.unscheduled.count} orang · masuk payout berikutnya`}
+          />
+          <Stat
+            label="Menunggu"
+            value={fmt(summary.waiting.total)}
+            sub={`${summary.waiting.count} orang · aktivasi/verifikasi`}
           />
         </Card>
       )}
@@ -161,6 +167,7 @@ function Body() {
           { value: "SCHEDULED", label: "Terjadwal" },
           { value: "PAID", label: "Dibayar" },
           { value: "FAILED", label: "Gagal" },
+          { value: "AGENTS", label: "Agen" },
         ]}
       />
 
@@ -186,7 +193,9 @@ function Body() {
         </Button>
       </div>
 
-      {!lines ? (
+      {tab === "AGENTS" ? (
+        <AgentBalances role={role} />
+      ) : !lines ? (
         <Loading rows={5} />
       ) : lines.length === 0 ? (
         <Empty title="Tidak ada payout di status ini." />
@@ -449,6 +458,39 @@ function Body() {
         }}
       />
     </AppShell>
+  );
+}
+
+function AgentBalances({ role }: { role: "L1" | "L2" | undefined }) {
+  const rows = useQuery(api.payouts.agentBalances);
+  const fmt = useMoney();
+  if (!rows) return <Loading rows={5} />;
+  const shown = rows.filter((r) => !role || r.role === role);
+  if (shown.length === 0) return <Empty title="Belum ada komisi." />;
+  const owing = shown.reduce((s, r) => s + r.unscheduled + r.scheduled, 0);
+  return (
+    <Card>
+      {shown.map((r) => (
+        <Row
+          key={r.userId}
+          href={`/admin/pengguna/${r.userId}?tab=komisi`}
+          label={r.name}
+          sub={`${r.role} · ${r.accountNumber ?? "DANA kosong"} · dibayar ${fmt(r.paid)}`}
+          value={fmt(r.unscheduled + r.scheduled)}
+          valueSub={
+            r.unscheduled
+              ? `${fmt(r.unscheduled)} belum dijadwalkan`
+              : r.waiting
+                ? `${fmt(r.waiting)} menunggu`
+                : r.scheduled
+                  ? "terjadwal"
+                  : "lunas"
+          }
+          tone={r.unscheduled + r.scheduled > 0 ? "default" : "good"}
+        />
+      ))}
+      <Row label="Total belum dibayar" value={fmt(owing)} />
+    </Card>
   );
 }
 

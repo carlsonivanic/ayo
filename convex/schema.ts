@@ -354,8 +354,10 @@ export default defineSchema({
     frozen: v.optional(v.boolean()), // §14.6 owner suspended, or payment unverified
     settledToCompany: v.optional(v.boolean()),
     note: v.optional(v.string()),
+    payoutLineId: v.optional(v.id("payoutLines")), // set once a payout carries it
   })
     .index("by_l1_period", ["l1Id", "period"])
+    .index("by_l1_payout", ["l1Id", "payoutLineId"])
     .index("by_l1_date", ["l1Id", "date"])
     .index("by_period", ["period"])
     .index("by_code", ["sourceCodeId"])
@@ -408,7 +410,9 @@ export default defineSchema({
     period: v.string(),
     totalFee: v.number(),
     settled: v.boolean(),
-  }).index("by_l2_period", ["l2Id", "period"]),
+  })
+    .index("by_l2_period", ["l2Id", "period"])
+    .index("by_l2_settled", ["l2Id", "settled"]),
 
   // §38.1 / §24.10 long-lived per-merchant history (exempt from archival).
   merchantEarningHistory: defineTable({

@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "convex/react";
 import { useRouter } from "next/router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { CommissionOverride } from "@/components/CommissionOverride";
 import { L1Performance, TeamMemberRow } from "@/components/L1Performance";
@@ -12,7 +12,7 @@ import { Field, Input, Select } from "@/components/ui/Form";
 import { Tabs } from "@/components/ui/Tabs";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
-import { currentPeriod, date, periodLabel } from "@/lib/format";
+import { currentPeriod, date, dateShort, periodLabel } from "@/lib/format";
 import { useMoney } from "@/lib/useMoney";
 import { errorMessage } from "@/lib/utils";
 
@@ -46,7 +46,12 @@ function Body() {
   const [reason, setReason] = useState("");
   const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState(false);
-  const [tab, setTab] = useState<"performa" | "pengaturan">("performa");
+  const [tab, setTab] = useState<"performa" | "komisi" | "pengaturan">(
+    router.query.tab === "komisi" ? "komisi" : "performa",
+  );
+  useEffect(() => {
+    if (router.query.tab === "komisi") setTab("komisi");
+  }, [router.query.tab]);
 
   if (!user) {
     return (
@@ -114,6 +119,7 @@ function Body() {
             onChange={setTab}
             options={[
               { value: "performa", label: "Performa" },
+              { value: "komisi", label: "Komisi" },
               { value: "pengaturan", label: "Pengaturan" },
             ]}
           />
@@ -121,6 +127,7 @@ function Body() {
 
         {tab === "performa" && user.role === "L1" && <L1Section userId={user.id} />}
         {tab === "performa" && user.role === "L2" && <L2Section userId={user.id} />}
+        {tab === "komisi" && <CommissionSection userId={user.id} />}
 
         {(tab === "pengaturan" || (user.role !== "L1" && user.role !== "L2")) && (
           <>
@@ -499,6 +506,71 @@ function L2Section({ userId }: { userId: Id<"users"> }) {
                 member={m}
                 special={m.specialCommission}
                 href={`/admin/pengguna/${m.id}`}
+              />
+            ))
+          )}
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+const WEEK_STATES = [
+  { key: "PAID", label: "dibayar" },
+  { key: "SCHEDULED", label: "terjadwal" },
+  { key: "UNSCHEDULED", label: "belum dijadwalkan" },
+  { key: "WAITING", label: "menunggu aktivasi/verifikasi" },
+] as const;
+
+function CommissionSection({ userId }: { userId: Id<"users"> }) {
+  const data = useQuery(api.payouts.agentWeeks, { userId });
+  const fmt = useMoney();
+  if (!data) return <Loading rows={4} />;
+  return (
+    <div className="space-y-5">
+      {data.weeks.length > 0 && (
+        <div>
+          <SectionTitle>Komisi mingguan</SectionTitle>
+          <Card>
+            {data.weeks.map((w) => {
+              const done = w.PAID === w.total;
+              return (
+                <Row
+                  key={w.start}
+                  label={`${dateShort(w.start)} – ${dateShort(w.start + 6 * 86400000)}`}
+                  sub={WEEK_STATES.filter((s) => w[s.key] > 0)
+                    .map((s) => `${fmt(w[s.key])} ${s.label}`)
+                    .join(" · ")}
+                  value={fmt(w.total)}
+                  valueSub={done ? "Lunas" : w.PAID ? "Sebagian" : "Belum"}
+                  tone={done ? "good" : "default"}
+                />
+              );
+            })}
+          </Card>
+        </div>
+      )}
+      <div>
+        <SectionTitle>Payout</SectionTitle>
+        <Card>
+          {data.payouts.length === 0 ? (
+            <Row label="Belum ada payout" tone="mute" />
+          ) : (
+            data.payouts.map((p) => (
+              <Row
+                key={p.id}
+                label={periodLabel(p.period)}
+                sub={
+                  p.status === "PAID"
+                    ? `Dibayar ${date(p.paidAt)}${p.note ? ` · ${p.note}` : ""}`
+                    : p.status === "FAILED"
+                      ? `Gagal${p.note ? ` · ${p.note}` : ""}`
+                      : `Jadwal ${date(p.payoutDate)}`
+                }
+                value={fmt(p.payable)}
+                valueSub={p.status === "PAID" ? "Lunas" : p.status === "FAILED" ? "Gagal" : "Belum"}
+                tone={p.status === "PAID" ? "good" : p.status === "FAILED" ? "warn" : "default"}
+                href="/admin/payout"
               />
             ))
           )}

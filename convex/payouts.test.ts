@@ -147,3 +147,73 @@ describe("manual payout tracking", () => {
     expect(reopened.paidAt).toBeUndefined();
   });
 });
+
+describe("carry-forward engine", () => {
+  test("a sale confirmed after its week's run is paid by the next run, once", async () => {
+    const c = await setup();
+    const lateId = await c.t.run(async (ctx) =>
+      ctx.db.insert("earningLines", {
+        l1Id: c.sellerId,
+        date: Date.now() - 50 * 24 * 3600_000,
+        period: shiftPeriod(periodOf(Date.now()), -1),
+        type: "NEW_SALES",
+        amount: 200_000,
+        status: "PENDING",
+      }),
+    );
+    await c.t.run(async (ctx) => {
+      await ctx.db.patch("users", c.sellerId, { payoutFrequency: "WEEKLY" });
+    });
+    await as(c, c.adminId).mutation(api.payouts.runPayouts, { scope: "L1_WEEKLY" });
+    let lines = await c.t.run(async (ctx) => ctx.db.query("payoutLines").collect());
+    expect(lines.map((l) => l.gross)).toEqual([500_000]);
+
+    const weeks = await as(c, c.adminId).query(api.payouts.agentWeeks, { userId: c.sellerId });
+    const waiting = weeks!.weeks.reduce((s, w) => s + w.WAITING, 0);
+    expect(waiting).toBe(200_000);
+
+    // Activated late, then the run for a later period picks it up.
+    await c.t.run(async (ctx) => {
+      await ctx.db.patch("earningLines", lateId, { status: "CONFIRMED" });
+    });
+    await c.t.run(async (ctx) => {
+      await ctx.db.patch("users", c.sellerId, { payoutFrequency: "MONTHLY" });
+    });
+    await as(c, c.adminId).mutation(api.payouts.runPayouts, { scope: "L1_MONTHLY" });
+    lines = await c.t.run(async (ctx) => ctx.db.query("payoutLines").collect());
+    expect(lines.map((l) => l.gross).sort()).toEqual([200_000, 500_000]);
+
+    const balances = await as(c, c.adminId).query(api.payouts.agentBalances, {});
+    expect(balances[0]).toMatchObject({ unscheduled: 0, scheduled: 700_000, paid: 0 });
+  });
+
+  test("L2 fees closed after the run are paid by the next run", async () => {
+    const c = await setup();
+    const l2Id = await c.t.run(async (ctx) => {
+      const now = Date.now();
+      const id = await ctx.db.insert("users", {
+        name: "Koordinator",
+        email: "l2@test",
+        role: "L2",
+        status: "ACTIVE",
+        registeredAt: now,
+        approvedAt: now,
+      });
+      await ctx.db.insert("monthlyL2Summaries", {
+        l2Id: id,
+        period: shiftPeriod(periodOf(now), -2),
+        totalFee: 75_000,
+        settled: false,
+      });
+      return id;
+    });
+    await as(c, c.adminId).mutation(api.payouts.runPayouts, { scope: "L2" });
+    const line = await c.t.run(async (ctx) =>
+      ctx.db
+        .query("payoutLines")
+        .withIndex("by_user_period", (q) => q.eq("userId", l2Id))
+        .unique(),
+    );
+    expect(line?.payable).toBe(75_000);
+  });
+});
