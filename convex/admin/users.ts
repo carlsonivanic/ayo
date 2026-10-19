@@ -4,6 +4,7 @@ import { mutation, query } from "../_generated/server";
 import { audit } from "../lib/audit";
 import { fail, requireAdmin } from "../lib/authz";
 import { assertMobileFree, normalizeMobile } from "../lib/mobile";
+import { PAYOUT_BANK, normalizeDana } from "../lib/payoutProfile";
 import { notify } from "../lib/notify";
 import { hasSpecialCommission } from "../lib/overrides";
 import { tenureMonthAt } from "../lib/period";
@@ -367,7 +368,6 @@ export const updateUser = mutation({
 export const editPayoutProfile = mutation({
   args: {
     userId: v.id("users"),
-    bankName: v.string(),
     accountNumber: v.string(),
     accountName: v.string(),
   },
@@ -381,8 +381,8 @@ export const editPayoutProfile = mutation({
       .unique();
     const doc = {
       userId: user._id,
-      bankName: args.bankName.trim(),
-      accountNumber: args.accountNumber.trim(),
+      bankName: PAYOUT_BANK,
+      accountNumber: normalizeDana(args.accountNumber),
       accountName: args.accountName.trim(),
       completed: true,
     };

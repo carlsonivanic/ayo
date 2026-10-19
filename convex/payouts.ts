@@ -4,6 +4,7 @@ import { MutationCtx, internalMutation, mutation, query } from "./_generated/ser
 import { audit } from "./lib/audit";
 import { fail, requireActive, requireAdmin } from "./lib/authz";
 import { notify } from "./lib/notify";
+import { findPayoutProfile, isPayoutReady } from "./lib/payoutProfile";
 import {
   DAY_MS,
   nextWeekday,
@@ -19,6 +20,10 @@ import { getSettings } from "./lib/settings";
 // §11 / §18 payout engine.
 // Payable = Gross + Jaminan - Held + Released held +/- Adjustment (§11.4), and
 // only CONFIRMED earnings ever reach a payout (§11.8 / P8).
+//
+// Lines are calculated automatically by the crons, but nothing moves money:
+// the admin transfers each payable to the agent's DANA wallet by hand and marks
+// the line PAID.
 //
 // DI-2 is implemented as pay-as-you-go with a monthly true-up: a weekly run pays
 // that week's confirmed gross, and the monthly accruals (jaminan, held, release)
@@ -84,14 +89,6 @@ async function consumeAdjustments(ctx: MutationCtx, userId: Id<"users">) {
   };
 }
 
-async function profileComplete(ctx: MutationCtx, userId: Id<"users">) {
-  const profile = await ctx.db
-    .query("payoutProfiles")
-    .withIndex("by_user", (q) => q.eq("userId", userId))
-    .unique();
-  return profile?.completed ?? false;
-}
-
 async function createPayout(
   ctx: MutationCtx,
   args: {
@@ -131,18 +128,6 @@ async function createPayout(
     return false;
   }
 
-  if (!(await profileComplete(ctx, args.user._id))) {
-    await notify(
-      ctx,
-      args.user._id,
-      "PAYOUT_PROFILE_REQUIRED",
-      "Lengkapi rekening",
-      "Payout tertahan sampai data rekening lengkap.",
-      "/profil",
-    );
-    return false;
-  }
-
   const payoutId = await ctx.db.insert("payoutLines", {
     userId: args.user._id,
     role: args.role,
@@ -161,6 +146,18 @@ async function createPayout(
   });
   for (const row of adjustments.rows) {
     await ctx.db.patch("adjustments", row._id, { consumedByPayoutId: payoutId });
+  }
+  // The line is still created — the earnings and accruals above are consumed
+  // and would otherwise be lost. It just cannot be marked paid until then.
+  if (!isPayoutReady(await findPayoutProfile(ctx, args.user._id))) {
+    await notify(
+      ctx,
+      args.user._id,
+      "PAYOUT_PROFILE_REQUIRED",
+      "Lengkapi nomor DANA",
+      "Payout tertahan sampai nomor DANA diisi.",
+      "/profil",
+    );
   }
   await notify(
     ctx,
@@ -324,33 +321,92 @@ export const runPayouts = mutation({
   },
 });
 
+async function settle(
+  ctx: MutationCtx,
+  adminId: Id<"users">,
+  line: Doc<"payoutLines">,
+  status: "PAID" | "FAILED",
+  note?: string,
+) {
+  if (line.status !== "SCHEDULED") fail("INVALID_STATE", "Payout sudah diproses.");
+  if (status === "PAID" && !isPayoutReady(await findPayoutProfile(ctx, line.userId))) {
+    fail("NO_DANA", "Nomor DANA belum diisi.");
+  }
+  await ctx.db.patch("payoutLines", line._id, {
+    status,
+    paidAt: status === "PAID" ? Date.now() : undefined,
+    paidBy: status === "PAID" ? adminId : undefined,
+    paidNote: status === "PAID" ? note : undefined,
+    failedReason: status === "FAILED" ? note : undefined,
+  });
+  await notify(
+    ctx,
+    line.userId,
+    status === "PAID" ? "PAYOUT_PAID" : "PAYOUT_FAILED",
+    status === "PAID" ? "Payout dibayar" : "Payout gagal",
+    `${line.period} — ${line.payable}.`,
+    line.role === "L2" ? "/l2/payout" : "/l1/payout",
+  );
+  await audit(ctx, {
+    adminId,
+    action: "MARK_PAYOUT",
+    object: `payout:${line._id}`,
+    oldValue: "SCHEDULED",
+    newValue: status,
+    reason: note,
+  });
+}
+
 export const markPaid = mutation({
-  args: { payoutId: v.id("payoutLines"), status: v.union(v.literal("PAID"), v.literal("FAILED")), reason: v.optional(v.string()) },
+  args: {
+    payoutId: v.id("payoutLines"),
+    status: v.union(v.literal("PAID"), v.literal("FAILED")),
+    reason: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     const admin = await requireAdmin(ctx);
     const line = await ctx.db.get("payoutLines", args.payoutId);
     if (!line) fail("NOT_FOUND", "Payout tidak ditemukan.");
-    if (line.status !== "SCHEDULED") fail("INVALID_STATE", "Payout sudah diproses.");
+    await settle(ctx, admin._id, line, args.status, args.reason?.trim() || undefined);
+    return null;
+  },
+});
+
+/** Bulk "Tandai dibayar" after a batch of DANA transfers. All or nothing. */
+export const markPaidMany = mutation({
+  args: { payoutIds: v.array(v.id("payoutLines")), note: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const admin = await requireAdmin(ctx);
+    for (const id of args.payoutIds) {
+      const line = await ctx.db.get("payoutLines", id);
+      if (!line) fail("NOT_FOUND", "Payout tidak ditemukan.");
+      await settle(ctx, admin._id, line, "PAID", args.note?.trim() || undefined);
+    }
+    return { count: args.payoutIds.length };
+  },
+});
+
+/** Undo a mistaken PAID / FAILED, or retry a failed transfer. */
+export const reopen = mutation({
+  args: { payoutId: v.id("payoutLines") },
+  handler: async (ctx, args) => {
+    const admin = await requireAdmin(ctx);
+    const line = await ctx.db.get("payoutLines", args.payoutId);
+    if (!line) fail("NOT_FOUND", "Payout tidak ditemukan.");
+    if (line.status === "SCHEDULED") fail("INVALID_STATE", "Payout belum diproses.");
     await ctx.db.patch("payoutLines", line._id, {
-      status: args.status,
-      paidAt: args.status === "PAID" ? Date.now() : undefined,
-      failedReason: args.status === "FAILED" ? args.reason : undefined,
+      status: "SCHEDULED",
+      paidAt: undefined,
+      paidBy: undefined,
+      paidNote: undefined,
+      failedReason: undefined,
     });
-    await notify(
-      ctx,
-      line.userId,
-      args.status === "PAID" ? "PAYOUT_PAID" : "PAYOUT_FAILED",
-      args.status === "PAID" ? "Payout dibayar" : "Payout gagal",
-      `${line.period} — ${line.payable}.`,
-      line.role === "L2" ? "/l2/payout" : "/l1/payout",
-    );
     await audit(ctx, {
       adminId: admin._id,
-      action: "MARK_PAYOUT",
+      action: "REOPEN_PAYOUT",
       object: `payout:${line._id}`,
-      oldValue: "SCHEDULED",
-      newValue: args.status,
-      reason: args.reason,
+      oldValue: line.status,
+      newValue: "SCHEDULED",
     });
     return null;
   },
@@ -371,13 +427,10 @@ export const mine = query({
       .query("l1States")
       .withIndex("by_l1", (q) => q.eq("l1Id", user._id))
       .unique();
-    const profile = await ctx.db
-      .query("payoutProfiles")
-      .withIndex("by_user", (q) => q.eq("userId", user._id))
-      .unique();
+    const profile = await findPayoutProfile(ctx, user._id);
     return {
       heldBalance: state?.heldBalance ?? 0,
-      profileCompleted: profile?.completed ?? false,
+      profileCompleted: isPayoutReady(profile),
       lines: lines.map((l) => ({
         id: l._id,
         period: l.period,
@@ -423,12 +476,11 @@ export const adminList = query({
     return Promise.all(
       filtered.map(async (l) => {
         const user = await ctx.db.get("users", l.userId);
-        const profile = await ctx.db
-          .query("payoutProfiles")
-          .withIndex("by_user", (q) => q.eq("userId", l.userId))
-          .unique();
+        const profile = await findPayoutProfile(ctx, l.userId);
+        const ready = isPayoutReady(profile);
         return {
           id: l._id,
+          userId: l.userId,
           userName: user?.name ?? "",
           role: l.role,
           period: l.period,
@@ -441,10 +493,79 @@ export const adminList = query({
           adjustment: l.adjustment,
           payable: l.payable,
           status: l.status,
-          bank: profile ? `${profile.bankName} ${profile.accountNumber}` : null,
+          paidAt: l.paidAt ?? null,
+          note: l.paidNote ?? l.failedReason ?? null,
+          ready,
+          bankName: profile?.bankName ?? null,
+          accountNumber: profile?.accountNumber ?? null,
           accountName: profile?.accountName ?? null,
         };
       }),
     );
+  },
+});
+
+/** Active agents whose payouts are blocked on a missing / non-DANA account. */
+export const missingProfiles = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireAdmin(ctx);
+    const out = [];
+    for (const role of ["L1", "L2"] as const) {
+      const users = await ctx.db
+        .query("users")
+        .withIndex("by_role_status", (q) => q.eq("role", role).eq("status", "ACTIVE"))
+        .collect();
+      for (const user of users) {
+        if (isPayoutReady(await findPayoutProfile(ctx, user._id))) continue;
+        const scheduled = await ctx.db
+          .query("payoutLines")
+          .withIndex("by_user_date", (q) => q.eq("userId", user._id))
+          .collect();
+        out.push({
+          userId: user._id,
+          name: user.name ?? "",
+          role,
+          mobile: user.mobile ?? null,
+          owed: scheduled
+            .filter((l) => l.status === "SCHEDULED")
+            .reduce((sum, l) => sum + l.payable, 0),
+        });
+      }
+    }
+    return out.sort((a, b) => b.owed - a.owed);
+  },
+});
+
+/** Header figures for the admin payout page: what to transfer this week. */
+export const summary = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireAdmin(ctx);
+    const now = Date.now();
+    const thisWeek = weekStart(now);
+    const nextWeek = thisWeek + 7 * DAY_MS;
+    const scheduled = await ctx.db
+      .query("payoutLines")
+      .withIndex("by_status", (q) => q.eq("status", "SCHEDULED"))
+      .collect();
+    const due = scheduled.filter((l) => l.payoutDate < nextWeek);
+    const later = scheduled.filter((l) => l.payoutDate >= nextWeek);
+    const paid = await ctx.db
+      .query("payoutLines")
+      .withIndex("by_status_paid", (q) => q.eq("status", "PAID").gte("paidAt", thisWeek))
+      .collect();
+    const sum = (rows: Doc<"payoutLines">[]) => rows.reduce((s, l) => s + l.payable, 0);
+    return {
+      weekStart: thisWeek,
+      weekEnd: nextWeek,
+      due: {
+        count: due.length,
+        total: sum(due),
+        overdue: due.filter((l) => l.payoutDate < thisWeek).length,
+      },
+      later: { count: later.length, total: sum(later) },
+      paidThisWeek: { count: paid.length, total: sum(paid) },
+    };
   },
 });

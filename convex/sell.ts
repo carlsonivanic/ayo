@@ -5,6 +5,7 @@ import { fail, requireActive, requireL1 } from "./lib/authz";
 import { pctOf } from "./lib/money";
 import { convertQRIS, qrisFrameInfo } from "./lib/qris";
 import { notify } from "./lib/notify";
+import { findPayoutProfile, isPayoutReady } from "./lib/payoutProfile";
 import { planForAgent } from "./lib/overrides";
 import { getSettings } from "./lib/settings";
 import { randomToken } from "./lib/tokens";
@@ -14,11 +15,7 @@ import { issueSeatLink } from "./seats";
 // WhatsApp, and everything else resolves from the payment and the redemption.
 
 async function ensureProfileComplete(ctx: MutationCtx, userId: Id<"users">) {
-  const profile = await ctx.db
-    .query("payoutProfiles")
-    .withIndex("by_user", (q) => q.eq("userId", userId))
-    .unique();
-  return profile?.completed ?? false;
+  return isPayoutReady(await findPayoutProfile(ctx, userId));
 }
 
 /**

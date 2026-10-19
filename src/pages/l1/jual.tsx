@@ -68,7 +68,7 @@ function Body() {
         <Link href="/profil" className="press block">
           <Card className="flex items-center justify-between gap-3 border-accent bg-accent-soft p-4">
             <span className="text-[14px] font-medium text-accent-ink">
-              Lengkapi rekening agar payout bisa dibayar
+              Isi nomor DANA agar payout bisa dibayar
             </span>
             <span className="text-[13px] font-semibold underline underline-offset-4">Isi</span>
           </Card>

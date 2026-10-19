@@ -32,7 +32,7 @@ function Body() {
   const toast = useToast();
 
   const [identity, setIdentity] = useState({ name: "", mobile: "" });
-  const [bank, setBank] = useState({ bankName: "", accountNumber: "", accountName: "" });
+  const [bank, setBank] = useState({ accountNumber: "", accountName: "" });
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -41,7 +41,6 @@ function Body() {
   useEffect(() => {
     if (profile) {
       setBank({
-        bankName: profile.bankName,
         accountNumber: profile.accountNumber,
         accountName: profile.accountName,
       });
@@ -68,7 +67,7 @@ function Body() {
     setBusy(true);
     try {
       await savePayout(bank);
-      toast("Rekening disimpan");
+      toast("Nomor DANA disimpan");
     } catch (err) {
       toast(errorMessage(err), "warn");
     } finally {
@@ -113,26 +112,23 @@ function Body() {
       {me.role !== "ADMIN" && (
         <form onSubmit={saveBank}>
           <SectionTitle helper={profile?.completed ? undefined : "Wajib sebelum payout pertama."}>
-            Rekening
+            DANA
           </SectionTitle>
           <Card className="space-y-4 p-4">
-            <Field label="Nama bank">
-              <Input
-                value={bank.bankName}
-                onChange={(e) => setBank({ ...bank, bankName: e.target.value })}
-                required
-              />
+            <Field label="Bank">
+              <Input value="DANA" disabled readOnly />
             </Field>
-            <Field label="Nomor rekening">
+            <Field label="Nomor DANA">
               <Input
-                inputMode="numeric"
+                inputMode="tel"
                 className="num"
                 value={bank.accountNumber}
                 onChange={(e) => setBank({ ...bank, accountNumber: e.target.value })}
+                placeholder="0812…"
                 required
               />
             </Field>
-            <Field label="Atas nama">
+            <Field label="Nama di akun DANA">
               <Input
                 value={bank.accountName}
                 onChange={(e) => setBank({ ...bank, accountName: e.target.value })}

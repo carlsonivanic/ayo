@@ -62,8 +62,8 @@ async function ensurePayoutProfile(ctx: MutationCtx, userId: Id<"users">, name: 
   if (existing) return;
   await ctx.db.insert("payoutProfiles", {
     userId,
-    bankName: "BCA",
-    accountNumber: String(1000000000 + Math.floor(Math.random() * 899999999)),
+    bankName: "DANA",
+    accountNumber: `0812${String(10000000 + Math.floor(Math.random() * 89999999))}`,
     accountName: name,
     completed: true,
   });

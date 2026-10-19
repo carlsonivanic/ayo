@@ -50,8 +50,8 @@ async function setup() {
     });
     await ctx.db.insert("payoutProfiles", {
       userId: ownerId,
-      bankName: "BCA",
-      accountNumber: "1",
+      bankName: "DANA",
+      accountNumber: "081234567891",
       accountName: "Owner",
       completed: true,
     });

@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { fail, getViewer, requireActive, requireViewer } from "./lib/authz";
 import { assertMobileFree, normalizeMobile } from "./lib/mobile";
+import { PAYOUT_BANK, findPayoutProfile, isPayoutReady, normalizeDana } from "./lib/payoutProfile";
 import { tenureMonthAt } from "./lib/period";
 import { getSettings } from "./lib/settings";
 
@@ -14,10 +15,7 @@ export const me = query({
     if (!user) return null;
 
     const settings = await getSettings(ctx);
-    const profile = await ctx.db
-      .query("payoutProfiles")
-      .withIndex("by_user", (q) => q.eq("userId", user._id))
-      .unique();
+    const profile = await findPayoutProfile(ctx, user._id);
 
     let registration = null;
     if (user.status === "PENDING") {
@@ -42,7 +40,7 @@ export const me = query({
       tenureMonth: tenureMonthAt(user.firstPaymentAt, Date.now()),
       payoutFrequency: user.payoutFrequency ?? settings.payout.l1DefaultFrequency,
       assignedL2: l2 ? { id: l2._id, name: l2.name ?? "" } : null,
-      payoutProfileCompleted: profile?.completed ?? false,
+      payoutProfileCompleted: isPayoutReady(profile),
       registrationStatus: registration?.status ?? null,
       registrationReason: registration?.reason ?? null,
       suspendReason: user.suspendReason ?? null,
@@ -68,41 +66,35 @@ export const getPayoutProfile = query({
   args: {},
   handler: async (ctx) => {
     const user = await requireViewer(ctx);
-    const profile = await ctx.db
-      .query("payoutProfiles")
-      .withIndex("by_user", (q) => q.eq("userId", user._id))
-      .unique();
+    const profile = await findPayoutProfile(ctx, user._id);
     if (!profile) return null;
+    // A legacy non-DANA account is shown empty so the agent re-enters it.
+    const isDana = profile.bankName === PAYOUT_BANK;
     return {
-      bankName: profile.bankName,
-      accountNumber: profile.accountNumber,
+      bankName: PAYOUT_BANK,
+      accountNumber: isDana ? profile.accountNumber : "",
       accountName: profile.accountName,
-      completed: profile.completed,
+      completed: isPayoutReady(profile),
     };
   },
 });
 
 export const savePayoutProfile = mutation({
   args: {
-    bankName: v.string(),
     accountNumber: v.string(),
     accountName: v.string(),
   },
   handler: async (ctx, args) => {
     const user = await requireActive(ctx);
-    const bankName = args.bankName.trim();
-    const accountNumber = args.accountNumber.trim();
     const accountName = args.accountName.trim();
-    if (!bankName || !accountNumber || !accountName) {
+    if (!args.accountNumber.trim() || !accountName) {
       fail("INCOMPLETE", "Lengkapi semua kolom.");
     }
-    const existing = await ctx.db
-      .query("payoutProfiles")
-      .withIndex("by_user", (q) => q.eq("userId", user._id))
-      .unique();
+    const accountNumber = normalizeDana(args.accountNumber);
+    const existing = await findPayoutProfile(ctx, user._id);
     const doc = {
       userId: user._id,
-      bankName,
+      bankName: PAYOUT_BANK,
       accountNumber,
       accountName,
       completed: true,

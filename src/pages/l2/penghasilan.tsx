@@ -101,7 +101,7 @@ function Body() {
         {payouts && !payouts.profileCompleted && (
           <Card className="mt-3 border-accent bg-accent-soft p-4">
             <p className="text-[14px] font-medium text-accent-ink">
-              Lengkapi rekening di Profil agar payout bisa dibayar.
+              Isi nomor DANA di Profil agar payout bisa dibayar.
             </p>
           </Card>
         )}

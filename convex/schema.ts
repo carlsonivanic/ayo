@@ -473,11 +473,14 @@ export default defineSchema({
     payable: v.number(),
     status: payoutStatus,
     paidAt: v.optional(v.number()),
+    paidBy: v.optional(v.id("users")),
+    paidNote: v.optional(v.string()), // e.g. DANA transfer reference
     failedReason: v.optional(v.string()),
   })
     .index("by_user_period", ["userId", "period"])
     .index("by_user_date", ["userId", "payoutDate"])
     .index("by_status", ["status"])
+    .index("by_status_paid", ["status", "paidAt"])
     .index("by_period", ["period"])
     .index("by_role_status", ["role", "status"]),
 

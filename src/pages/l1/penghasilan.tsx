@@ -160,8 +160,8 @@ function Payouts() {
         {!data.profileCompleted && (
           <Row
             href="/profil"
-            label="Rekening belum lengkap"
-            sub="Payout tertahan sampai data rekening diisi."
+            label="Nomor DANA belum diisi"
+            sub="Payout tertahan sampai nomor DANA diisi."
             value="Isi"
             tone="warn"
           />

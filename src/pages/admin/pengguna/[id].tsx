@@ -34,10 +34,14 @@ function Body() {
   const assignL2 = useMutation(api.admin.users.assignL2);
   const releaseHeld = useMutation(api.admin.ops.manualHeldRelease);
   const createAdjustment = useMutation(api.admin.ops.createAdjustment);
+  const editPayoutProfile = useMutation(api.admin.users.editPayoutProfile);
   const toast = useToast();
   const fmt = useMoney();
 
-  const [sheet, setSheet] = useState<"edit" | "suspend" | "held" | "adjust" | null>(null);
+  const [sheet, setSheet] = useState<"edit" | "suspend" | "held" | "adjust" | "dana" | null>(
+    null,
+  );
+  const [dana, setDana] = useState({ accountNumber: "", accountName: "" });
   const [form, setForm] = useState({ name: "", email: "", mobile: "" });
   const [reason, setReason] = useState("");
   const [amount, setAmount] = useState("");
@@ -154,12 +158,42 @@ function Body() {
               <CommissionOverride userId={user.id} role={user.role} />
             )}
 
-            {user.payoutProfile && (
+            {(user.role === "L1" || user.role === "L2") && (
               <div>
-                <SectionTitle>Rekening</SectionTitle>
+                <SectionTitle
+                  action={
+                    <Button
+                      size="sm"
+                      variant="quiet"
+                      onClick={() => {
+                        const p = user.payoutProfile;
+                        setDana({
+                          accountNumber: p?.bankName === "DANA" ? p.accountNumber : "",
+                          accountName: p?.accountName ?? user.name,
+                        });
+                        setSheet("dana");
+                      }}
+                    >
+                      Ubah
+                    </Button>
+                  }
+                >
+                  DANA
+                </SectionTitle>
                 <Card>
-                  <Row label={user.payoutProfile.bankName} value={user.payoutProfile.accountNumber} />
-                  <Row label="Atas nama" value={user.payoutProfile.accountName} />
+                  {user.payoutProfile ? (
+                    <>
+                      <Row
+                        label={user.payoutProfile.bankName}
+                        value={user.payoutProfile.accountNumber}
+                        tone={user.payoutProfile.bankName === "DANA" ? "default" : "warn"}
+                        valueSub={user.payoutProfile.bankName === "DANA" ? undefined : "Perlu DANA"}
+                      />
+                      <Row label="Atas nama" value={user.payoutProfile.accountName} />
+                    </>
+                  ) : (
+                    <Row label="Nomor DANA belum diisi" tone="warn" />
+                  )}
                 </Card>
               </div>
             )}
@@ -268,6 +302,41 @@ function Body() {
               inputMode="tel"
               value={form.mobile}
               onChange={(e) => setForm({ ...form, mobile: e.target.value })}
+            />
+          </Field>
+        </div>
+      </Sheet>
+
+      <Sheet
+        open={sheet === "dana"}
+        onClose={() => setSheet(null)}
+        title="Nomor DANA"
+        footer={
+          <Button
+            block
+            disabled={busy || !dana.accountNumber.trim() || !dana.accountName.trim()}
+            onClick={() =>
+              void run(() => editPayoutProfile({ userId: user.id, ...dana }), "Nomor DANA disimpan")
+            }
+          >
+            Simpan
+          </Button>
+        }
+      >
+        <div className="space-y-4">
+          <Field label="Nomor DANA">
+            <Input
+              inputMode="tel"
+              className="num"
+              placeholder="0812…"
+              value={dana.accountNumber}
+              onChange={(e) => setDana({ ...dana, accountNumber: e.target.value })}
+            />
+          </Field>
+          <Field label="Nama di akun DANA">
+            <Input
+              value={dana.accountName}
+              onChange={(e) => setDana({ ...dana, accountName: e.target.value })}
             />
           </Field>
         </div>
