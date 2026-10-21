@@ -10,7 +10,7 @@ async function base64(url: string): Promise<string> {
 }
 
 /** Print-size PDF (1 page, real millimetres). Text and shapes stay vector. */
-export async function downloadBannerPdf(size: BannerSize, info: BannerInfo, filename: string) {
+export async function makeBannerPdf(size: BannerSize, info: BannerInfo): Promise<Blob> {
   // Loaded on demand: both libraries are browser-only and heavy.
   const [{ jsPDF }, { svg2pdf }] = await Promise.all([import("jspdf"), import("svg2pdf.js")]);
 
@@ -22,21 +22,56 @@ export async function downloadBannerPdf(size: BannerSize, info: BannerInfo, file
     }),
   );
 
-  // svg2pdf needs the raster inline, and the element attached to measure it.
-  const hand = `data:image/png;base64,${await base64(HAND_SRC)}`;
-  const svg = new DOMParser().parseFromString(buildBanner(size, info, hand), "image/svg+xml")
-    .documentElement as unknown as SVGSVGElement;
+  // svg2pdf drops the hand raster on mobile browsers, so the SVG is split around
+  // it: shapes below via svg2pdf, the PNG via jsPDF's own addImage, then the
+  // tag on top via svg2pdf again.
+  const hand = await base64(HAND_SRC);
+  const parse = () =>
+    new DOMParser().parseFromString(buildBanner(size, info), "image/svg+xml")
+      .documentElement as unknown as SVGSVGElement;
+  const below = parse();
+  const above = parse();
+  const img = below.querySelector("image")!;
+  const at = (k: string) => Number(img.getAttribute(k));
+  const box = { x: at("x"), y: at("y"), w: at("width"), h: at("height") };
+  const kids = (svg: SVGSVGElement) => Array.from(svg.children);
+  const cut = kids(below).indexOf(img);
+  kids(below).slice(cut).forEach((el) => el.remove());
+  kids(above)
+    .slice(0, cut + 1)
+    .forEach((el) => el.tagName !== "defs" && el.remove());
+
+  // svg2pdf needs the element attached to measure it.
   const host = document.createElement("div");
   host.style.cssText = "position:fixed;left:-99999px;top:0;width:0;height:0;overflow:hidden";
-  host.appendChild(svg);
+  host.append(below, above);
   document.body.appendChild(host);
   try {
-    await svg2pdf(svg, doc, { x: 0, y: 0, width: size.w, height: size.h });
+    await svg2pdf(below, doc, { x: 0, y: 0, width: size.w, height: size.h });
+    doc.addImage(hand, "PNG", box.x, box.y, box.w, box.h);
+    await svg2pdf(above, doc, { x: 0, y: 0, width: size.w, height: size.h });
   } finally {
     host.remove();
   }
-  // Anchor download instead of doc.save: mobile browsers otherwise open the PDF in a new tab.
-  const url = URL.createObjectURL(doc.output("blob"));
+  return doc.output("blob");
+}
+
+/** Phones (touch-first) can't download after a long async step; they save on a second tap. */
+export const isPhone = () =>
+  typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
+
+/**
+ * Must run straight from a tap: iOS/Android drop the gesture after await,
+ * then open the PDF in a tab instead of saving it.
+ */
+export function saveBannerPdf(blob: Blob, filename: string) {
+  const file = new File([blob], filename, { type: "application/pdf" });
+  if (isPhone() && navigator.canShare?.({ files: [file] })) {
+    // Share sheet has "Save to Files" / "Simpan" — the only real download path on iOS.
+    navigator.share({ files: [file] }).catch(() => {});
+    return;
+  }
+  const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;

@@ -8,7 +8,7 @@ import { useToast } from "@/components/ui/Feedback";
 import { Field, Input } from "@/components/ui/Form";
 import { Tabs } from "@/components/ui/Tabs";
 import { BANNER_FONTS, BANNER_SIZES, BannerInfo, buildBanner } from "@/lib/banner";
-import { downloadBannerPdf } from "@/lib/bannerPdf";
+import { isPhone, makeBannerPdf, saveBannerPdf } from "@/lib/bannerPdf";
 
 // Every role makes banners for their stores; nothing is stored.
 export default function BannerPage() {
@@ -37,17 +37,28 @@ function Body() {
     facebook: "",
   });
   const [busy, setBusy] = useState(false);
+  // Finished PDF for the current design, waiting for the phone's second tap.
+  const [ready, setReady] = useState<{ svg: string; blob: Blob; name: string } | null>(null);
 
   const size = BANNER_SIZES.find((s) => s.id === sizeId)!;
   const svg = useMemo(() => buildBanner(size, info), [size, info]);
   const set = (key: keyof BannerInfo) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setInfo((prev) => ({ ...prev, [key]: e.target.value }));
 
+  const pending = ready?.svg === svg ? ready : null;
+
   async function download() {
+    if (pending) {
+      saveBannerPdf(pending.blob, pending.name);
+      return;
+    }
     setBusy(true);
     try {
       const slug = info.storeName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-") || "toko";
-      await downloadBannerPdf(size, info, `banner-${slug}-${size.id}m.pdf`);
+      const name = `banner-${slug}-${size.id}m.pdf`;
+      const blob = await makeBannerPdf(size, info);
+      if (isPhone()) setReady({ svg, blob, name });
+      else saveBannerPdf(blob, name);
     } catch (err) {
       console.error(err);
       toast("Gagal membuat PDF");
@@ -94,7 +105,7 @@ function Body() {
 
       <Button block onClick={download} disabled={busy}>
         <Download className="h-4 w-4" />
-        {busy ? "Membuat PDF…" : `Unduh PDF ${size.label}`}
+        {busy ? "Membuat PDF…" : pending ? "Simpan PDF" : `Unduh PDF ${size.label}`}
       </Button>
     </div>
   );
