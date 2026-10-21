@@ -81,11 +81,11 @@ export function buildBanner(size: { w: number; h: number }, raw: BannerInfo, han
   const phoneY = H - phoneH + 0.07 * H;
 
   // Type sizes, each shrunk until its line fits the column.
-  const L1 = "LEBIH CEPAT,";
+  const L1 = "LEBIH CEPAT, ";
   const L2 = "LEBIH TEPAT";
   const head = Math.min(
     (wide ? 0.1 : 0.09) * H,
-    (textW * 0.97) / (Math.max(textWidth(L1, "BnXBI", 1), textWidth(L2, "BnXBI", 1)) + 0.06),
+    (textW * 0.97) / (textWidth(L1 + L2, "BnXBI", 1) + 0.06),
   );
   const barsW = 0.17 * H;
   const nameX = left + barsW + 0.04 * H;
@@ -112,11 +112,10 @@ export function buildBanner(size: { w: number; h: number }, raw: BannerInfo, han
   const contact = Math.min(0.047 * H, (tagX - 0.04 * H - contactX) / longest);
   const rowH = 0.047 * H * 1.75;
 
-  const total = head * 0.74 + head * 0.98 + head * 0.36 + name * 0.74 + (rows.length ? name * 0.75 + rowH * rows.length : name * 0.3);
+  const total = head * 0.74 + head * 0.3 + name * 0.74 + (rows.length ? name * 0.75 + rowH * rows.length : name * 0.3);
   const top = (H - total) / 2;
   const b1 = top + head * 0.74;
-  const b2 = b1 + head * 0.98;
-  const bName = b2 + head * 0.36 + name * 0.74;
+  const bName = b1 + head * 0.3 + name * 0.74;
   const rows0 = bName + name * 0.75;
 
   const out: string[] = [];
@@ -187,10 +186,10 @@ export function buildBanner(size: { w: number; h: number }, raw: BannerInfo, han
 
   // Headline with a hard drop shadow (svg2pdf has no filters).
   const shadow = 0.012 * H;
-  const headText = (y: number, text: string, fill: string) =>
-    `<text x="${n(left + shadow * 0.6)}" y="${n(y + shadow)}" font-family="BnXBI" font-size="${n(head)}" fill="${NAVY}" fill-opacity="0.55">${text}</text>` +
-    `<text x="${n(left)}" y="${n(y)}" font-family="BnXBI" font-size="${n(head)}" fill="${fill}">${text}</text>`;
-  out.push(headText(b1, L1, "#ffffff"), headText(b2, L2, YELLOW));
+  const headText = (x: number, text: string, fill: string) =>
+    `<text x="${n(x + shadow * 0.6)}" y="${n(b1 + shadow)}" font-family="BnXBI" font-size="${n(head)}" fill="${NAVY}" fill-opacity="0.55">${text}</text>` +
+    `<text x="${n(x)}" y="${n(b1)}" font-family="BnXBI" font-size="${n(head)}" fill="${fill}">${text}</text>`;
+  out.push(headText(left, L1, "#ffffff"), headText(left + textWidth(L1, "BnXBI", head), L2, YELLOW));
 
   // Speed bars + store name.
   const barY = bName - name * 0.42;
