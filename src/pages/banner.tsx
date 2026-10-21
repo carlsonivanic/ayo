@@ -81,14 +81,14 @@ function Body() {
             value={info.whatsapp}
             onChange={set("whatsapp")}
             inputMode="tel"
-            placeholder="0812 3456 789"
+            placeholder="Opsional"
           />
         </Field>
         <Field label="Instagram">
-          <Input value={info.instagram} onChange={set("instagram")} placeholder="nama_toko" />
+          <Input value={info.instagram} onChange={set("instagram")} placeholder="Opsional" />
         </Field>
         <Field label="Facebook">
-          <Input value={info.facebook} onChange={set("facebook")} placeholder="nama_toko" />
+          <Input value={info.facebook} onChange={set("facebook")} placeholder="Opsional" />
         </Field>
       </Card>
 

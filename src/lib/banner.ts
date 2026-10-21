@@ -57,14 +57,11 @@ const poly = (pts: [number, number][], fill: string, extra = "") =>
   `<polygon points="${pts.map(([x, y]) => `${n(x)},${n(y)}`).join(" ")}" fill="${fill}"${extra}/>`;
 
 export function placeholders(info: BannerInfo): BannerInfo {
-  const handle =
-    info.storeName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") ||
-    "nama_toko";
   return {
     storeName: info.storeName.trim() || "Nama Toko",
-    whatsapp: info.whatsapp.trim() || "0812 3456 789",
-    instagram: info.instagram.trim().replace(/^@/, "") || handle,
-    facebook: info.facebook.trim() || handle,
+    whatsapp: info.whatsapp.trim(),
+    instagram: info.instagram.trim().replace(/^@/, ""),
+    facebook: info.facebook.trim(),
   };
 }
 
@@ -103,13 +100,19 @@ export function buildBanner(size: { w: number; h: number }, raw: BannerInfo, han
 
   // Contact rows run until the tag; long handles shrink instead of colliding.
   const contactX = left + barsW * 0.35 + 0.047 * H * 1.35 * 1.45 + 0.03 * H;
-  const longest = Math.max(
-    ...[info.whatsapp, info.instagram, info.facebook].map((v) => textWidth(v, "BnSB", 1)),
-  );
+  // Contacts are optional; only filled ones get a row.
+  const rows = (
+    [
+      [ICON_WA, info.whatsapp],
+      [ICON_IG, info.instagram],
+      [ICON_FB, info.facebook],
+    ] as [string, string][]
+  ).filter(([, value]) => value);
+  const longest = Math.max(0.01, ...rows.map(([, v]) => textWidth(v, "BnSB", 1)));
   const contact = Math.min(0.047 * H, (tagX - 0.04 * H - contactX) / longest);
   const rowH = 0.047 * H * 1.75;
 
-  const total = head * 0.74 + head * 0.98 + head * 0.36 + name * 0.74 + name * 0.75 + rowH * 3;
+  const total = head * 0.74 + head * 0.98 + head * 0.36 + name * 0.74 + (rows.length ? name * 0.75 + rowH * rows.length : name * 0.3);
   const top = (H - total) / 2;
   const b1 = top + head * 0.74;
   const b2 = b1 + head * 0.98;
@@ -214,11 +217,6 @@ export function buildBanner(size: { w: number; h: number }, raw: BannerInfo, han
   // Contacts.
   const icon = 0.047 * H * 1.35;
   const iconX = left + barsW * 0.35;
-  const rows: [string, string][] = [
-    [ICON_WA, info.whatsapp],
-    [ICON_IG, info.instagram],
-    [ICON_FB, info.facebook],
-  ];
   rows.forEach(([glyph, value], i) => {
     const cy = rows0 + rowH * (i + 0.5);
     const s = icon / 24;
