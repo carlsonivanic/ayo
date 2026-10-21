@@ -3,7 +3,7 @@ import { ADVANCE } from "./bannerMetrics";
 /**
  * Promo banner for stores, drawn as one SVG in millimetres so the same markup
  * previews on screen and converts to a print-size vector PDF. Only the hand
- * mockup is raster.
+ * mockup is raster. Left half: store info. Right half: SellMore sponsor area.
  */
 
 export const BANNER_SIZES = [
@@ -11,6 +11,7 @@ export const BANNER_SIZES = [
   { id: "3x1", label: "3 × 1 m", w: 3000, h: 1000 },
   { id: "2x1", label: "2 × 1 m", w: 2000, h: 1000 },
   { id: "1.6x0.8", label: "1,6 × 0,8 m", w: 1600, h: 800 },
+  { id: "1x1", label: "1 × 1 m", w: 1000, h: 1000 },
 ] as const;
 
 export type BannerSize = (typeof BANNER_SIZES)[number];
@@ -55,6 +56,9 @@ const esc = (s: string) =>
 const n = (v: number) => Math.round(v * 10) / 10;
 const poly = (pts: [number, number][], fill: string, extra = "") =>
   `<polygon points="${pts.map(([x, y]) => `${n(x)},${n(y)}`).join(" ")}" fill="${fill}"${extra}/>`;
+const path = (d: string, fill: string, extra = "") => `<path d="${d}" fill="${fill}"${extra}/>`;
+const stroke = (d: string, color: string, width: number, extra = "") =>
+  `<path d="${d}" fill="none" stroke="${color}" stroke-width="${n(width)}" stroke-linecap="round"${extra}/>`;
 
 export function placeholders(info: BannerInfo): BannerInfo {
   return {
@@ -65,42 +69,282 @@ export function placeholders(info: BannerInfo): BannerInfo {
   };
 }
 
-export function buildBanner(size: { w: number; h: number }, raw: BannerInfo, handHref = HAND_SRC) {
+type Box = { x: number; y: number; w: number; h: number };
+type Ctx = { W: number; H: number; phone: Box; split: number; id: (s: string) => string };
+
+type Theme = {
+  id: string;
+  label: string;
+  bg: [string, string, string];
+  name: "gold" | "white";
+  accent: string;
+  draw: (c: Ctx) => string[];
+};
+
+/** Sine-ish ribbon across the full width: top edge, then bottom edge back. */
+function ribbon(W: number, y: number, amp: number, per: number, thick: number, shift: number) {
+  const half = per / 2;
+  const xs: number[] = [];
+  for (let x = -per + (shift % per); x <= W + per; x += half) xs.push(x);
+  const edge = (dy: number, a: number, order: number[]) =>
+    order
+      .slice(1)
+      .map((i, k) => {
+        const x0 = xs[order[k]];
+        const x1 = xs[i];
+        const s = (Math.min(i, order[k]) % 2 ? -1 : 1) * a * (4 / 3);
+        return `C ${n(x0 + (x1 - x0) * 0.3)} ${n(y + dy + s)} ${n(x0 + (x1 - x0) * 0.7)} ${n(y + dy + s)} ${n(x1)} ${n(y + dy)}`;
+      })
+      .join(" ");
+  const idx = xs.map((_, i) => i);
+  const back = [...idx].reverse();
+  return `M ${n(xs[0])} ${n(y)} ${edge(0, amp, idx)} L ${n(xs[xs.length - 1])} ${n(y + thick)} ${edge(thick, amp * 0.7, back)} Z`;
+}
+
+/** Pointed leaf, s long, pointing right from the origin. */
+const leaf = (s: number) =>
+  `M 0 0 C ${n(s * 0.3)} ${n(-s * 0.32)} ${n(s * 0.7)} ${n(-s * 0.32)} ${n(s)} 0 C ${n(s * 0.7)} ${n(s * 0.32)} ${n(s * 0.3)} ${n(s * 0.32)} 0 0 Z`;
+
+/** Four-point sparkle centred at x,y. */
+const sparkle = (x: number, y: number, r: number) => {
+  const q = r * 0.18;
+  return `M ${n(x)} ${n(y - r)} L ${n(x + q)} ${n(y - q)} L ${n(x + r)} ${n(y)} L ${n(x + q)} ${n(y + q)} L ${n(x)} ${n(y + r)} L ${n(x - q)} ${n(y + q)} L ${n(x - r)} ${n(y)} L ${n(x - q)} ${n(y - q)} Z`;
+};
+
+// Deterministic scatter so preview and PDF match.
+function rand(seed: number) {
+  let s = seed;
+  return () => {
+    s = (s * 16807) % 2147483647;
+    return s / 2147483647;
+  };
+}
+
+const swoosh = (W: number, H: number, x0: number, yEnd: number) =>
+  `M ${n(x0)} ${n(H)} C ${n(x0 + (W - x0) * 0.45)} ${n(H * 0.94)} ${n(x0 + (W - x0) * 0.8)} ${n(yEnd + (H - yEnd) * 0.45)} ${n(W)} ${n(yEnd)}`;
+
+export const BANNER_THEMES: Theme[] = [
+  {
+    id: "klasik",
+    label: "Klasik",
+    bg: ["#0A2BB0", "#1442D6", "#0B2A9C"],
+    name: "gold",
+    accent: YELLOW,
+    draw: ({ W, H }) => {
+      const x0 = W - Math.max(1.9 * H, W * 0.6);
+      return [
+        path(`M 0 0 L ${n(W * 0.5)} 0 C ${n(W * 0.32)} ${n(H * 0.4)} ${n(W * 0.18)} ${n(H * 0.7)} 0 ${n(H * 0.85)} Z`, "#ffffff", ` fill-opacity="0.04"`),
+        path(`${swoosh(W, H, x0 - 0.2 * H, 0.15 * H)} L ${W} ${H} Z`, "#2C5FF0", ` fill-opacity="0.45"`),
+        path(`${swoosh(W, H, x0 + 0.3 * H, 0.5 * H)} L ${W} ${H} Z`, "#08228A", ` fill-opacity="0.55"`),
+        stroke(swoosh(W, H, x0, 0.32 * H), YELLOW, 0.016 * H),
+        stroke(swoosh(W, H, x0 + 0.08 * H, 0.4 * H), "#ffffff", 0.006 * H, ` stroke-opacity="0.5"`),
+      ];
+    },
+  },
+  {
+    id: "ombak",
+    label: "Ombak",
+    bg: ["#0C33C8", "#0F3AD6", "#0A2696"],
+    name: "gold",
+    accent: YELLOW,
+    draw: ({ W, H }) => {
+      const out = [
+        path(ribbon(W, 0.2 * H, 0.12 * H, 1.7 * H, 0.1 * H, 0), "#3BB2F7", ` fill-opacity="0.5"`),
+        path(ribbon(W, 0.34 * H, 0.1 * H, 1.7 * H, 0.025 * H, 0.2 * H), "#8FDFFF", ` fill-opacity="0.45"`),
+        path(ribbon(W, 0.82 * H, 0.09 * H, 2.1 * H, 0.12 * H, 0.9 * H), "#2C8DF0", ` fill-opacity="0.5"`),
+        path(ribbon(W, 0.94 * H, 0.07 * H, 2.1 * H, 0.03 * H, 1.2 * H), "#8FDFFF", ` fill-opacity="0.4"`),
+      ];
+      // Leaf sprays along the top, repeated across the width.
+      for (let x = 0.15 * H; x < W; x += 1.6 * H) {
+        [-35, 5, 45].forEach((deg, i) =>
+          out.push(
+            `<g transform="translate(${n(x)} ${n(0.18 * H)}) rotate(${deg - 20})">${path(leaf(0.3 * H - i * 0.04 * H), "#1D52E6", ` fill-opacity="0.7" stroke="#6FD0FF" stroke-width="${n(0.008 * H)}"`)}</g>`,
+          ),
+        );
+        out.push(path(sparkle(x + 0.75 * H, 0.12 * H, 0.08 * H), "none", ` stroke="#6FD0FF" stroke-width="${n(0.008 * H)}"`));
+      }
+      return out;
+    },
+  },
+  {
+    id: "kilat",
+    label: "Kilat",
+    bg: ["#0D2C9E", BLUE, "#0B278A"],
+    name: "white",
+    accent: YELLOW,
+    draw: ({ W, H, phone }) => {
+      const out: string[] = [];
+      // Halftone patch, fading toward the centre.
+      for (let i = 0; i < 9; i++) {
+        for (let j = 0; j < 7; j++) {
+          const r = 0.0065 * H * (1 - i / 11);
+          out.push(`<circle cx="${n(0.12 * H + i * 0.03 * H)}" cy="${n(0.6 * H + j * 0.03 * H)}" r="${n(r)}" fill="#ffffff" fill-opacity="0.08"/>`);
+        }
+      }
+      // "/" stripes: k is horizontal drift per unit of height.
+      const k = 0.78;
+      const slash = (xb: number, wd: number, y0: number, y1: number, fill: string, extra = "") =>
+        poly(
+          [
+            [xb + (H - y0) * k, y0],
+            [xb + wd + (H - y0) * k, y0],
+            [xb + wd + (H - y1) * k, y1],
+            [xb + (H - y1) * k, y1],
+          ],
+          fill,
+          extra,
+        );
+      out.push(
+        poly([[0, 0.7 * H], [0.3 * H, H], [0, H]], YELLOW),
+        poly([[0, 0.78 * H], [0.22 * H, H], [0.17 * H, H], [0, 0.83 * H]], "#ffffff", ` fill-opacity="0.9"`),
+        slash(-0.5 * H, 0.03 * H, 0.0, 0.2 * H, "#ffffff"),
+        slash(-0.58 * H, 0.025 * H, 0.0, 0.12 * H, YELLOW),
+        poly([[W - 0.6 * H, H], [W, H], [W, 0.5 * H]], YELLOW),
+        slash(W - 0.72 * H, 0.035 * H, 0.45 * H, H, "#ffffff"),
+        slash(W - 0.5 * H, 0.08 * H, 0.45 * H, 0.9 * H, TEAL),
+        slash(W - 0.36 * H, 0.06 * H, 0, H, BLUE),
+        slash(W - 0.22 * H, 0.03 * H, 0, 0.75 * H, "#ffffff"),
+        slash(phone.x - 0.42 * H, 0.04 * H, 0.74 * H, H, "#ffffff"),
+        slash(phone.x - 0.34 * H, 0.07 * H, 0.82 * H, H, YELLOW),
+      );
+      return out;
+    },
+  },
+  {
+    id: "malam",
+    label: "Malam",
+    bg: ["#071237", "#0E1E5C", "#050C2A"],
+    name: "gold",
+    accent: "#FFC93C",
+    draw: ({ W, H, phone }) => {
+      const out: string[] = [];
+      // Light rays fanning from behind the phone.
+      const cx = phone.x + phone.w * 0.55;
+      const cy = H * 0.45;
+      const R = Math.max(W, H) * 1.2;
+      for (let i = 0; i < 18; i++) {
+        const a0 = (i / 18) * Math.PI * 2;
+        const a1 = a0 + Math.PI / 36;
+        out.push(
+          poly(
+            [
+              [cx, cy],
+              [cx + Math.cos(a0) * R, cy + Math.sin(a0) * R],
+              [cx + Math.cos(a1) * R, cy + Math.sin(a1) * R],
+            ],
+            "#FFD200",
+            ` fill-opacity="0.05"`,
+          ),
+        );
+      }
+      const r = rand(7);
+      for (let i = 0; i < Math.round((W / H) * 7); i++) {
+        out.push(path(sparkle(r() * W, r() * H, (0.012 + r() * 0.03) * H), "#FFD66B", ` fill-opacity="${n(0.4 + r() * 0.5)}"`));
+      }
+      out.push(
+        stroke(swoosh(W, H, W * 0.25, 0.55 * H), "#E2A815", 0.01 * H),
+        stroke(swoosh(W, H, W * 0.32, 0.68 * H), "#E2A815", 0.005 * H, ` stroke-opacity="0.5"`),
+      );
+      return out;
+    },
+  },
+  {
+    id: "merah",
+    label: "Merah",
+    bg: ["#D3132F", "#B30E27", "#760716"],
+    name: "gold",
+    accent: YELLOW,
+    draw: ({ W, H }) => {
+      const out: string[] = [];
+      for (let i = 0; i < 10; i++) {
+        for (let j = 0; j < 6; j++) {
+          out.push(`<circle cx="${n(0.05 * H + i * 0.035 * H)}" cy="${n(0.05 * H + j * 0.035 * H)}" r="${n(0.007 * H * (1 - (i + j) / 16))}" fill="#ffffff" fill-opacity="0.12"/>`);
+        }
+      }
+      const x0 = W - Math.max(1.9 * H, W * 0.6);
+      out.push(
+        path(`${swoosh(W, H, x0 - 0.2 * H, 0.1 * H)} L ${W} ${H} Z`, "#8A0A1D", ` fill-opacity="0.6"`),
+        stroke(swoosh(W, H, x0, 0.28 * H), YELLOW, 0.02 * H),
+        stroke(swoosh(W, H, x0 + 0.1 * H, 0.38 * H), "#ffffff", 0.007 * H, ` stroke-opacity="0.6"`),
+        path(`M 0 ${n(H)} L 0 ${n(0.82 * H)} C ${n(0.3 * W)} ${n(0.9 * H)} ${n(0.5 * W)} ${n(0.97 * H)} ${n(0.6 * W)} ${n(H)} Z`, "#ffffff", ` fill-opacity="0.06"`),
+      );
+      return out;
+    },
+  },
+];
+
+export type BannerThemeId = string;
+
+/** Split the name into 2 lines at the space nearest its middle. */
+function twoLines(name: string): [string, string] | null {
+  const mid = name.length / 2;
+  let best = -1;
+  for (let i = 0; i < name.length; i++) {
+    if (name[i] === " " && (best < 0 || Math.abs(i - mid) < Math.abs(best - mid))) best = i;
+  }
+  return best < 0 ? null : [name.slice(0, best), name.slice(best + 1)];
+}
+
+export function buildBanner(
+  size: { w: number; h: number },
+  raw: BannerInfo,
+  themeId: BannerThemeId = BANNER_THEMES[0].id,
+  { prefix = "", handHref = HAND_SRC } = {},
+) {
   const { w: W, h: H } = size;
   const info = placeholders(raw);
-  const wide = W / H >= 2.5;
+  const theme = BANNER_THEMES.find((t) => t.id === themeId) ?? BANNER_THEMES[0];
+  const id = (s: string) => prefix + s;
+  const r = W / H;
+  const wide = r >= 2.5;
+  const square = r < 1.5;
 
-  // Columns: text block on the left, phone in hand on the right.
-  const left = (wide ? 0.3 : 0.15) * H;
-  const phoneH = (wide ? 0.98 : 0.9) * H;
-  const phoneW = phoneH * HAND_RATIO;
-  const textW = Math.min(W - left - phoneW - (wide ? 0.45 : 0.24) * H, 2.3 * H);
-  const gap = 0.12 * H;
-  const spare = Math.max(0, W - left - textW - gap - phoneW - 0.1 * H);
-  const phoneX = left + textW + gap + spare * 0.25;
-  const phoneY = H - phoneH + 0.07 * H;
+  // Sponsor copy (right side).
+  const PILL = "PAKAI SELLMORE";
+  const T1 = "Lebih cepat,";
+  const T2 = "lebih tepat.";
+  const tag = (wide ? 0.115 : square ? 0.075 : 0.088) * H;
+  const tagW = Math.max(textWidth(T1, "BnBI", tag), textWidth(T2, "BnXBI", tag));
+  const pill = tag * 0.42;
+  const pillW = textWidth(PILL, "BnBlack", pill) + pill * 1.6;
+  const pillH = pill * 1.8;
 
-  // Type sizes, each shrunk until its line fits the column.
-  const L1 = "LEBIH CEPAT, ";
-  const L2 = "LEBIH TEPAT";
-  const head = Math.min(
-    (wide ? 0.1 : 0.09) * H,
-    (textW * 0.97) / (textWidth(L1 + L2, "BnXBI", 1) + 0.06),
-  );
-  const barsW = 0.17 * H;
-  const nameX = left + barsW + 0.04 * H;
-  const nameMax = left + textW - nameX;
-  const name = Math.min((wide ? 0.215 : 0.19) * H, nameMax / (textWidth(info.storeName, "BnBI", 1) + 0.04));
-  const tag = 0.05 * H;
-  const tagText = "PAKAI SELLMORE.ID";
-  const tagW = textWidth(tagText, "BnBlack", tag) + tag * 1.4;
-  const tagH = tag * 1.75;
-  const tagX = phoneX - tagW * 0.42;
-  const tagY = phoneY + phoneH * 0.58;
+  // Phone: beside the tagline on wide banners, under it otherwise.
+  let phone: Box;
+  let tagRight: number;
+  let pillY: number;
+  if (wide) {
+    const h = 1.0 * H;
+    const w = h * HAND_RATIO;
+    phone = { x: W - w - 0.12 * H, y: 0.05 * H, w, h };
+    tagRight = phone.x + 0.02 * H;
+    pillY = 0.14 * H;
+  } else {
+    pillY = 0.06 * H;
+    const y = pillY + pillH + tag * 2.3;
+    const h = H - y + 0.08 * H;
+    const w = h * HAND_RATIO;
+    tagRight = W - (square ? 0.05 : 0.07) * H;
+    phone = { x: tagRight - Math.max(w, tagW) / 2 - w / 2, y, w, h };
+  }
+  const t1 = pillY + pillH + tag * 0.95;
+  const t2 = t1 + tag * 1.05;
+  const tagLeft = tagRight - tagW;
+  const split = Math.min(tagLeft, wide ? Infinity : phone.x) - 0.08 * H;
 
-  // Contact rows run until the tag; long handles shrink instead of colliding.
-  const contactX = left + barsW * 0.35 + 0.047 * H * 1.35 * 1.45 + 0.03 * H;
-  // Contacts are optional; only filled ones get a row.
+  // Store info (left side).
+  const left = (wide ? 0.17 : square ? 0.07 : 0.1) * H;
+  const maxW = split - left;
+  const nameMax = (wide ? 0.21 : square ? 0.12 : 0.17) * H;
+  const one = Math.min(nameMax, maxW / (textWidth(info.storeName, "BnBI", 1) + 0.04));
+  const pair = twoLines(info.storeName);
+  const two = pair
+    ? Math.min(nameMax * 0.9, maxW / (Math.max(...pair.map((l) => textWidth(l, "BnBI", 1))) + 0.04))
+    : 0;
+  const lines = two > one * 1.25 ? pair! : [info.storeName];
+  const name = lines.length > 1 ? two : one;
+  const lineH = name * 0.98;
+
   const rows = (
     [
       [ICON_WA, info.whatsapp],
@@ -108,137 +352,100 @@ export function buildBanner(size: { w: number; h: number }, raw: BannerInfo, han
       [ICON_FB, info.facebook],
     ] as [string, string][]
   ).filter(([, value]) => value);
-  const longest = Math.max(0.01, ...rows.map(([, v]) => textWidth(v, "BnSB", 1)));
-  const contact = Math.min(0.047 * H, (tagX - 0.04 * H - contactX) / longest);
-  const rowH = 0.047 * H * 1.75;
+  // Contacts sit in one row like the name, or stack when the column is narrow.
+  const baseIcon = (square ? 0.07 : 0.08) * H;
+  const baseText = baseIcon * 0.58;
+  const rowGap = baseIcon * 0.55;
+  const itemW = (v: string, ic: number, tx: number) => ic * 1.3 + textWidth(v, "BnSB", tx);
+  const rowTotal = rows.reduce((s, [, v]) => s + itemW(v, baseIcon, baseText), 0) + rowGap * Math.max(0, rows.length - 1);
+  const stack = square || (rows.length > 1 && maxW / rowTotal < 0.75);
+  const scale = stack
+    ? Math.min(1, maxW / Math.max(0.01, ...rows.map(([, v]) => itemW(v, baseIcon, baseText))))
+    : Math.min(1, maxW / Math.max(0.01, rowTotal));
+  const icon = baseIcon * scale;
+  const ctext = baseText * scale;
+  const contactsH = !rows.length ? 0 : stack ? icon * 1.35 * rows.length : icon;
 
-  const total = head * 0.74 + head * 0.3 + name * 0.74 + (rows.length ? name * 0.75 + rowH * rows.length : name * 0.3);
-  const top = (H - total) / 2;
-  const b1 = top + head * 0.74;
-  const bName = b1 + head * 0.3 + name * 0.74;
-  const rows0 = bName + name * 0.75;
+  const blockH = name * 0.74 + lineH * (lines.length - 1) + (rows.length ? name * 0.35 + contactsH : 0);
+  const top = (wide ? 0.58 : square ? 0.55 : 0.52) * H - blockH / 2;
+  const base0 = top + name * 0.74;
+  const lastBase = base0 + lineH * (lines.length - 1);
+  const rows0 = lastBase + name * 0.35;
 
-  const out: string[] = [];
-  out.push(
+  const ctx: Ctx = { W, H, phone, split, id };
+  const [c0, c1, c2] = theme.bg;
+  const out: string[] = [
     `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${W}mm" height="${H}mm" viewBox="0 0 ${W} ${H}">`,
     `<defs>`,
-    `<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0D2C9E"/><stop offset="0.45" stop-color="${BLUE}"/><stop offset="1" stop-color="#0B278A"/></linearGradient>`,
-    `<linearGradient id="ig" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#FEDA75"/><stop offset="0.35" stop-color="#FA7E1E"/><stop offset="0.6" stop-color="#D62976"/><stop offset="1" stop-color="#4F5BD5"/></linearGradient>`,
+    `<linearGradient id="${id("bg")}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${c0}"/><stop offset="0.45" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient>`,
+    `<linearGradient id="${id("ig")}" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#FEDA75"/><stop offset="0.35" stop-color="#FA7E1E"/><stop offset="0.6" stop-color="#D62976"/><stop offset="1" stop-color="#4F5BD5"/></linearGradient>`,
+    ...lines.flatMap((_, i) => {
+      const b = base0 + lineH * i;
+      return [
+        `<clipPath id="${id(`hi${i}`)}"><rect x="0" y="${n(b - name * 0.8)}" width="${W}" height="${n(name * 0.4)}"/></clipPath>`,
+        `<clipPath id="${id(`lo${i}`)}"><rect x="0" y="${n(b - name * 0.2)}" width="${W}" height="${n(name * 0.3)}"/></clipPath>`,
+      ];
+    }),
     `</defs>`,
-    `<rect x="0" y="0" width="${W}" height="${H}" fill="url(#bg)"/>`,
-  );
+    `<rect x="0" y="0" width="${W}" height="${H}" fill="url(#${id("bg")})"/>`,
+    ...theme.draw(ctx),
+  ];
 
-  // Halftone patch behind the lower text, fading toward the centre.
-  for (let i = 0; i < 9; i++) {
-    for (let j = 0; j < 7; j++) {
-      const r = 0.0065 * H * (1 - i / 11);
+  // Store name. Gold: stacked extrusion + banded face (svg2pdf has no filters).
+  lines.forEach((line, i) => {
+    const b = base0 + lineH * i;
+    const t = (dx: number, dy: number, fill: string, extra = "") =>
+      `<text x="${n(left + dx)}" y="${n(b + dy)}" font-family="BnBI" font-size="${n(name)}" fill="${fill}"${extra}>${esc(line)}</text>`;
+    if (theme.name === "gold") {
+      out.push(t(name * 0.05, name * 0.08, "#000000", ` fill-opacity="0.35"`));
+      for (let k = 6; k >= 1; k--) out.push(t(k * name * 0.006, k * name * 0.009, k > 3 ? "#5C3500" : "#8A5600"));
       out.push(
-        `<circle cx="${n(left * 0.6 + i * 0.03 * H)}" cy="${n(0.52 * H + j * 0.03 * H)}" r="${n(r)}" fill="#ffffff" fill-opacity="0.08"/>`,
+        t(0, 0, "#EDAA14"),
+        `<g clip-path="url(#${id(`hi${i}`)})">${t(0, 0, "#FFE680")}</g>`,
+        `<g clip-path="url(#${id(`lo${i}`)})">${t(0, 0, "#C98306")}</g>`,
       );
+    } else {
+      out.push(t(name * 0.04, name * 0.06, NAVY, ` fill-opacity="0.55"`), t(0, 0, "#ffffff"));
     }
-  }
-
-  // "/" stripes: k is horizontal drift per unit of height.
-  const k = 0.78;
-  const slash = (xb: number, wd: number, y0: number, y1: number, fill: string, extra = "") =>
-    poly(
-      [
-        [xb + (H - y0) * k, y0],
-        [xb + wd + (H - y0) * k, y0],
-        [xb + wd + (H - y1) * k, y1],
-        [xb + (H - y1) * k, y1],
-      ],
-      fill,
-      extra,
-    );
-
-  // Left edge.
-  out.push(
-    poly([[0, 0.56 * H], [0.44 * H, H], [0, H]], YELLOW),
-    poly([[0, 0.66 * H], [0.34 * H, H], [0.28 * H, H], [0, 0.72 * H]], "#ffffff", ` fill-opacity="0.9"`),
-    slash(-0.33 * H, 0.06 * H, 0.38 * H, 0.62 * H, TEAL),
-    slash(-0.5 * H, 0.03 * H, 0.1 * H, 0.36 * H, "#ffffff"),
-    slash(-0.58 * H, 0.025 * H, 0.04 * H, 0.2 * H, YELLOW),
-  );
-
-  // Right edge.
-  out.push(
-    poly([[W - 0.7 * H, H], [W, H], [W, 0.1 * H]], YELLOW),
-    slash(W - 1.15 * H, 0.2 * H, 0, 0.42 * H, YELLOW),
-    slash(W - 0.72 * H, 0.035 * H, 0, H, "#ffffff"),
-    slash(W - 0.5 * H, 0.08 * H, 0.2 * H, 0.9 * H, TEAL),
-    slash(W - 0.36 * H, 0.06 * H, 0, H, BLUE),
-    slash(W - 0.22 * H, 0.03 * H, 0, 0.75 * H, "#ffffff"),
-    // Speed streaks under the phone.
-    slash(phoneX - 0.42 * H, 0.04 * H, 0.74 * H, H, "#ffffff"),
-    slash(phoneX - 0.34 * H, 0.07 * H, 0.82 * H, H, YELLOW),
-  );
-
-  // Wide sizes leave a gap between text and phone; carry the stripes through it.
-  if (spare > 0.3 * H) {
-    const mid = left + textW + gap + spare * 0.2;
-    out.push(
-      slash(mid - 0.75 * H, 0.012 * H, 0, 0.3 * H, "#ffffff", ` fill-opacity="0.5"`),
-      slash(mid - 0.6 * H, 0.05 * H, 0.05 * H, 0.22 * H, YELLOW),
-      slash(mid - 0.3 * H, 0.02 * H, 0.62 * H, H, "#ffffff", ` fill-opacity="0.35"`),
-    );
-  }
-
-  // Headline with a hard drop shadow (svg2pdf has no filters).
-  const shadow = 0.012 * H;
-  const headText = (x: number, text: string, fill: string) =>
-    `<text x="${n(x + shadow * 0.6)}" y="${n(b1 + shadow)}" font-family="BnXBI" font-size="${n(head)}" fill="${NAVY}" fill-opacity="0.55">${text}</text>` +
-    `<text x="${n(x)}" y="${n(b1)}" font-family="BnXBI" font-size="${n(head)}" fill="${fill}">${text}</text>`;
-  out.push(headText(left, L1, "#ffffff"), headText(left + textWidth(L1, "BnXBI", head), L2, YELLOW));
-
-  // Speed bars + store name.
-  const barY = bName - name * 0.42;
-  const bar = (x: number, y: number, wd: number, fill: string) =>
-    poly(
-      [
-        [x + 0.012 * H, y],
-        [x + wd + 0.012 * H, y],
-        [x + wd, y + 0.012 * H],
-        [x, y + 0.012 * H],
-      ],
-      fill,
-    );
-  out.push(
-    bar(left, barY - 0.022 * H, barsW * 0.55, YELLOW),
-    bar(left + barsW * 0.6, barY - 0.022 * H, barsW * 0.2, "#F5E28A"),
-    bar(left + barsW * 0.83, barY - 0.022 * H, barsW * 0.17, TEAL),
-    bar(left, barY + 0.006 * H, barsW * 0.68, "#ffffff"),
-    bar(left + barsW * 0.73, barY + 0.006 * H, barsW * 0.27, TEAL),
-    `<text x="${n(nameX + shadow * 0.4)}" y="${n(bName + shadow * 0.6)}" font-family="BnBI" font-size="${n(name)}" fill="${NAVY}" fill-opacity="0.5">${esc(info.storeName)}</text>`,
-    `<text x="${n(nameX)}" y="${n(bName)}" font-family="BnBI" font-size="${n(name)}" fill="#ffffff">${esc(info.storeName)}</text>`,
-  );
+  });
 
   // Contacts.
-  const icon = 0.047 * H * 1.35;
-  const iconX = left + barsW * 0.35;
+  let cx = left;
   rows.forEach(([glyph, value], i) => {
-    const cy = rows0 + rowH * (i + 0.5);
+    const cy = stack ? rows0 + icon * 1.35 * (i + 0.5) : rows0 + icon / 2;
+    const x = stack ? left : cx;
     const s = icon / 24;
     out.push(
-      `<circle cx="${n(iconX + icon / 2)}" cy="${n(cy)}" r="${n(icon * 0.5)}" fill="#ffffff"/>`,
-      `<g transform="translate(${n(iconX + icon * 0.12)} ${n(cy - icon * 0.38)}) scale(${s * 0.76})">${glyph}</g>`,
-      `<rect x="${n(iconX + icon * 1.45)}" y="${n(cy - icon * 0.36)}" width="${n(0.006 * H)}" height="${n(icon * 0.72)}" fill="${YELLOW}"/>`,
-      `<text x="${n(contactX)}" y="${n(cy + contact * 0.36)}" font-family="BnSB" font-size="${n(contact)}" fill="#ffffff">${esc(value)}</text>`,
+      `<circle cx="${n(x + icon / 2)}" cy="${n(cy)}" r="${n(icon * 0.5)}" fill="#ffffff"/>`,
+      `<g transform="translate(${n(x + icon * 0.12)} ${n(cy - icon * 0.38)}) scale(${s * 0.76})">${glyph.replace("url(#ig)", `url(#${id("ig")})`)}</g>`,
+      `<text x="${n(x + icon * 1.3)}" y="${n(cy + ctext * 0.36)}" font-family="BnSB" font-size="${n(ctext)}" fill="#ffffff">${esc(value)}</text>`,
     );
+    cx += itemW(value, icon, ctext) + rowGap * scale;
   });
 
   // Phone in hand; its wrist runs off the bottom edge.
   out.push(
-    `<image x="${n(phoneX)}" y="${n(phoneY)}" width="${n(phoneW)}" height="${n(phoneH)}" xlink:href="${handHref}" href="${handHref}" preserveAspectRatio="none"/>`,
+    `<image x="${n(phone.x)}" y="${n(phone.y)}" width="${n(phone.w)}" height="${n(phone.h)}" xlink:href="${handHref}" href="${handHref}" preserveAspectRatio="none"/>`,
   );
 
-  // "PAKAI SELLMORE.ID" tag over the fingers, clear of the headline.
+  // Sponsor copy, right-aligned to the phone, drawn over the hand's edge.
+  const sh = tag * 0.05;
+  const tagText = (y: number, text: string, family: Family, fill: string) => {
+    const x = tagRight - textWidth(text, family, tag);
+    return (
+      `<text x="${n(x + sh)}" y="${n(y + sh * 1.4)}" font-family="${family}" font-size="${n(tag)}" fill="#000000" fill-opacity="0.3">${text}</text>` +
+      `<text x="${n(x)}" y="${n(y)}" font-family="${family}" font-size="${n(tag)}" fill="${fill}">${text}</text>`
+    );
+  };
+  const pillX = tagRight - pillW;
   out.push(
-    `<g transform="rotate(-6 ${n(tagX + tagW / 2)} ${n(tagY + tagH / 2)})">`,
-    `<rect x="${n(tagX + 0.008 * H)}" y="${n(tagY + 0.01 * H)}" width="${n(tagW)}" height="${n(tagH)}" rx="${n(tagH * 0.22)}" fill="${NAVY}" fill-opacity="0.45"/>`,
-    `<rect x="${n(tagX)}" y="${n(tagY)}" width="${n(tagW)}" height="${n(tagH)}" rx="${n(tagH * 0.22)}" fill="${YELLOW}"/>`,
-    `<text x="${n(tagX + tag * 0.7)}" y="${n(tagY + tagH / 2 + tag * 0.36)}" font-family="BnBlack" font-size="${n(tag)}" fill="${NAVY}">${tagText}</text>`,
+    `<g transform="rotate(-4 ${n(pillX + pillW / 2)} ${n(pillY + pillH / 2)})">`,
+    `<rect x="${n(pillX + pill * 0.15)}" y="${n(pillY + pill * 0.2)}" width="${n(pillW)}" height="${n(pillH)}" rx="${n(pillH * 0.25)}" fill="#000000" fill-opacity="0.3"/>`,
+    `<rect x="${n(pillX)}" y="${n(pillY)}" width="${n(pillW)}" height="${n(pillH)}" rx="${n(pillH * 0.25)}" fill="${theme.accent}"/>`,
+    `<text x="${n(pillX + pill * 0.8)}" y="${n(pillY + pillH / 2 + pill * 0.36)}" font-family="BnBlack" font-size="${n(pill)}" fill="${NAVY}">${PILL}</text>`,
     `</g>`,
+    tagText(t1, T1, "BnBI", "#ffffff"),
+    tagText(t2, T2, "BnXBI", theme.accent),
   );
 
   out.push(`</svg>`);

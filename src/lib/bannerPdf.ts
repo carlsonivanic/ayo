@@ -10,7 +10,7 @@ async function base64(url: string): Promise<string> {
 }
 
 /** Print-size PDF (1 page, real millimetres). Text and shapes stay vector. */
-export async function makeBannerPdf(size: BannerSize, info: BannerInfo): Promise<Blob> {
+export async function makeBannerPdf(size: BannerSize, info: BannerInfo, theme: string): Promise<Blob> {
   // Loaded on demand: both libraries are browser-only and heavy.
   const [{ jsPDF }, { svg2pdf }] = await Promise.all([import("jspdf"), import("svg2pdf.js")]);
 
@@ -27,7 +27,7 @@ export async function makeBannerPdf(size: BannerSize, info: BannerInfo): Promise
   // tag on top via svg2pdf again.
   const hand = await base64(HAND_SRC);
   const parse = () =>
-    new DOMParser().parseFromString(buildBanner(size, info), "image/svg+xml")
+    new DOMParser().parseFromString(buildBanner(size, info, theme), "image/svg+xml")
       .documentElement as unknown as SVGSVGElement;
   const below = parse();
   const above = parse();

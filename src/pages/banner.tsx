@@ -7,7 +7,8 @@ import { Card } from "@/components/ui/Card";
 import { useToast } from "@/components/ui/Feedback";
 import { Field, Input } from "@/components/ui/Form";
 import { Tabs } from "@/components/ui/Tabs";
-import { BANNER_FONTS, BANNER_SIZES, BannerInfo, buildBanner } from "@/lib/banner";
+import { BANNER_FONTS, BANNER_SIZES, BANNER_THEMES, BannerInfo, buildBanner } from "@/lib/banner";
+import { cn } from "@/lib/utils";
 import { isPhone, makeBannerPdf, saveBannerPdf } from "@/lib/bannerPdf";
 
 // Every role makes banners for their stores; nothing is stored.
@@ -36,12 +37,17 @@ function Body() {
     instagram: "",
     facebook: "",
   });
+  const [theme, setTheme] = useState(BANNER_THEMES[0].id);
   const [busy, setBusy] = useState(false);
   // Finished PDF for the current design, waiting for the phone's second tap.
   const [ready, setReady] = useState<{ svg: string; blob: Blob; name: string } | null>(null);
 
   const size = BANNER_SIZES.find((s) => s.id === sizeId)!;
-  const svg = useMemo(() => buildBanner(size, info), [size, info]);
+  const svg = useMemo(() => buildBanner(size, info, theme, { prefix: "m" }), [size, info, theme]);
+  const thumbs = useMemo(
+    () => BANNER_THEMES.map((t, i) => buildBanner(size, info, t.id, { prefix: `t${i}` })),
+    [size, info],
+  );
   const set = (key: keyof BannerInfo) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setInfo((prev) => ({ ...prev, [key]: e.target.value }));
 
@@ -56,7 +62,7 @@ function Body() {
     try {
       const slug = info.storeName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-") || "toko";
       const name = `banner-${slug}-${size.id}m.pdf`;
-      const blob = await makeBannerPdf(size, info);
+      const blob = await makeBannerPdf(size, info, theme);
       if (isPhone()) setReady({ svg, blob, name });
       else saveBannerPdf(blob, name);
     } catch (err) {
@@ -82,6 +88,25 @@ function Body() {
           dangerouslySetInnerHTML={{ __html: svg }}
         />
       </Card>
+
+      <div className="grid grid-cols-5 gap-2">
+        {BANNER_THEMES.map((t, i) => (
+          <button
+            key={t.id}
+            onClick={() => setTheme(t.id)}
+            className={cn(
+              "overflow-hidden rounded border-2 text-[12px] font-semibold",
+              t.id === theme ? "border-ink text-ink" : "border-transparent text-ink-mute",
+            )}
+          >
+            <div
+              className="[&>svg]:block [&>svg]:h-auto [&>svg]:w-full"
+              dangerouslySetInnerHTML={{ __html: thumbs[i] }}
+            />
+            <div className="py-1">{t.label}</div>
+          </button>
+        ))}
+      </div>
 
       <Card className="space-y-4 p-4">
         <Field label="Nama toko">
