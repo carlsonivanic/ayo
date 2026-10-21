@@ -15,7 +15,7 @@ export default function PenjualanPage() {
   return (
     <Guard>
       <AppShell title="Penjualan">
-        <Body />
+        <SalesHistory />
       </AppShell>
     </Guard>
   );
@@ -29,7 +29,7 @@ function shiftDay(day: string, delta: number) {
   return jakartaDay(Date.parse(`${day}T00:00:00+07:00`) + delta * 86400000);
 }
 
-function Body() {
+export function SalesHistory() {
   const today = jakartaDay(Date.now());
   const [day, setDay] = useState(today);
   const me = useQuery(api.users.me);

@@ -12,15 +12,34 @@ import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { countdown, money } from "@/lib/format";
 import { useMoney } from "@/lib/useMoney";
+import { SalesHistory } from "@/pages/penjualan";
+import { Tabs } from "@/components/ui/Tabs";
 import { copy, errorMessage, whatsappUrl } from "@/lib/utils";
 
 export default function JualPage() {
   return (
     <Guard role="L1">
       <AppShell title="Jual">
-        <Body />
+        <JualTabs />
       </AppShell>
     </Guard>
+  );
+}
+
+function JualTabs() {
+  const [tab, setTab] = useState<"jual" | "riwayat">("jual");
+  return (
+    <>
+      <Tabs
+        value={tab}
+        onChange={setTab}
+        options={[
+          { value: "jual", label: "Jual" },
+          { value: "riwayat", label: "Riwayat penjualan" },
+        ]}
+      />
+      {tab === "jual" ? <Body /> : <SalesHistory />}
+    </>
   );
 }
 

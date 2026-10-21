@@ -50,7 +50,6 @@ const NAV: Record<string, { primary: Item[]; more: Item[] }> = {
     primary: [
       { href: "/l1", label: "Beranda", icon: Home },
       { href: "/l1/jual", label: "Jual", icon: Send },
-      { href: "/penjualan", label: "Penjualan", icon: ShoppingBag },
       { href: "/l1/kode", label: "Kode", icon: Ticket },
       { href: "/l1/pelanggan", label: "Pelanggan", icon: Store },
       { href: "/l1/penghasilan", label: "Penghasilan", icon: Wallet },
