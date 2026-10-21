@@ -8,6 +8,7 @@ import {
   CircleUserRound,
   CreditCard,
   FileBarChart,
+  Image as ImageIcon,
   Home,
   Map,
   Megaphone,
@@ -43,7 +44,7 @@ const NAV: Record<string, { primary: Item[]; more: Item[] }> = {
       { href: "/l1/pelanggan", label: "Pelanggan", icon: Store },
       { href: "/l1/penghasilan", label: "Penghasilan", icon: Wallet },
     ],
-    more: [],
+    more: [{ href: "/banner", label: "Banner", icon: ImageIcon }],
   },
   L2: {
     primary: [
@@ -53,7 +54,7 @@ const NAV: Record<string, { primary: Item[]; more: Item[] }> = {
       { href: "/l2/pelanggan", label: "Pelanggan", icon: Store },
       { href: "/l2/penghasilan", label: "Penghasilan", icon: Wallet },
     ],
-    more: [],
+    more: [{ href: "/banner", label: "Banner", icon: ImageIcon }],
   },
   ADMIN: {
     primary: [
@@ -74,6 +75,7 @@ const NAV: Record<string, { primary: Item[]; more: Item[] }> = {
       { href: "/admin/pengumuman", label: "Pengumuman", icon: Megaphone },
       { href: "/admin/peta", label: "Peta", icon: Map },
       { href: "/admin/audit", label: "Audit", icon: ShieldCheck },
+      { href: "/banner", label: "Banner", icon: ImageIcon },
     ],
   },
 };
