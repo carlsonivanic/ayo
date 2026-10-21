@@ -35,5 +35,13 @@ export async function downloadBannerPdf(size: BannerSize, info: BannerInfo, file
   } finally {
     host.remove();
   }
-  doc.save(filename);
+  // Anchor download instead of doc.save: mobile browsers otherwise open the PDF in a new tab.
+  const url = URL.createObjectURL(doc.output("blob"));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }

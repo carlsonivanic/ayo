@@ -132,7 +132,7 @@ export function AppShell({
             {grouped([...nav.primary, ...nav.more]).map((section) => (
               <div key={section.label} className="flex flex-col gap-0.5">
                 {section.label && (
-                  <span className="px-3 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-mute">
+                  <span className="px-3 pb-1.5 pt-5 text-[12.5px] font-bold uppercase tracking-[0.06em] text-ink">
                     {section.label}
                   </span>
                 )}
@@ -228,7 +228,7 @@ export function AppShell({
           {grouped(nav?.more ?? []).map((section) => (
             <div key={section.label}>
               {section.label && (
-                <div className="px-4 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-mute">
+                <div className="bg-paper px-4 pb-2 pt-5 text-[13.5px] font-bold uppercase tracking-[0.06em] text-ink">
                   {section.label}
                 </div>
               )}

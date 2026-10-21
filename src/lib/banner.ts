@@ -58,7 +58,7 @@ const poly = (pts: [number, number][], fill: string, extra = "") =>
 
 export function placeholders(info: BannerInfo): BannerInfo {
   return {
-    storeName: info.storeName.trim() || "Nama Toko",
+    storeName: (info.storeName.trim() || "Nama Toko").toUpperCase(),
     whatsapp: info.whatsapp.trim(),
     instagram: info.instagram.trim().replace(/^@/, ""),
     facebook: info.facebook.trim(),
@@ -84,13 +84,13 @@ export function buildBanner(size: { w: number; h: number }, raw: BannerInfo, han
   const L1 = "LEBIH CEPAT,";
   const L2 = "LEBIH TEPAT";
   const head = Math.min(
-    (wide ? 0.215 : 0.19) * H,
+    (wide ? 0.1 : 0.09) * H,
     (textW * 0.97) / (Math.max(textWidth(L1, "BnXBI", 1), textWidth(L2, "BnXBI", 1)) + 0.06),
   );
   const barsW = 0.17 * H;
   const nameX = left + barsW + 0.04 * H;
   const nameMax = left + textW - nameX;
-  const name = Math.min(0.085 * H, nameMax / (textWidth(info.storeName, "BnBI", 1) + 0.04));
+  const name = Math.min((wide ? 0.215 : 0.19) * H, nameMax / (textWidth(info.storeName, "BnBI", 1) + 0.04));
   const tag = 0.05 * H;
   const tagText = "PAKAI SELLMORE.ID";
   const tagW = textWidth(tagText, "BnBlack", tag) + tag * 1.4;
