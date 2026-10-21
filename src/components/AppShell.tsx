@@ -19,6 +19,7 @@ import {
   Settings2,
   QrCode,
   ShieldCheck,
+  ShoppingBag,
   Store,
   Tags,
   Ticket,
@@ -40,6 +41,7 @@ const NAV: Record<string, { primary: Item[]; more: Item[] }> = {
     primary: [
       { href: "/l1", label: "Beranda", icon: Home },
       { href: "/l1/jual", label: "Jual", icon: Send },
+      { href: "/penjualan", label: "Penjualan", icon: ShoppingBag },
       { href: "/l1/kode", label: "Kode", icon: Ticket },
       { href: "/l1/pelanggan", label: "Pelanggan", icon: Store },
       { href: "/l1/penghasilan", label: "Penghasilan", icon: Wallet },
@@ -50,6 +52,7 @@ const NAV: Record<string, { primary: Item[]; more: Item[] }> = {
     primary: [
       { href: "/l2", label: "Beranda", icon: Home },
       { href: "/l2/tim", label: "Tim", icon: Users },
+      { href: "/penjualan", label: "Penjualan", icon: ShoppingBag },
       { href: "/l2/undang", label: "Undang", icon: UserPlus },
       { href: "/l2/pelanggan", label: "Pelanggan", icon: Store },
       { href: "/l2/penghasilan", label: "Penghasilan", icon: Wallet },
@@ -59,6 +62,7 @@ const NAV: Record<string, { primary: Item[]; more: Item[] }> = {
   ADMIN: {
     primary: [
       { href: "/admin", label: "Beranda", icon: Home },
+      { href: "/penjualan", label: "Penjualan", icon: ShoppingBag },
       { href: "/admin/pengguna", label: "Pengguna", icon: Users },
       { href: "/admin/komisi", label: "Komisi", icon: Receipt },
       { href: "/admin/payout", label: "Payout", icon: Banknote },
