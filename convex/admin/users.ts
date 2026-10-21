@@ -444,3 +444,109 @@ export const detail = query({
     };
   },
 });
+
+/**
+ * Removes the account and everything that only exists for it (login, profile,
+ * invites, notifications). Ledger rows stay — the ledger is append-only (P1) —
+ * and merchants they owned become ownerless (§15.5). Blocked while a payout is
+ * still scheduled for them, so nobody is owed money by a deleted account.
+ */
+export const deleteUser = mutation({
+  args: { userId: v.id("users"), confirmName: v.string() },
+  handler: async (ctx, args) => {
+    const admin = await requireAdmin(ctx);
+    const user = await ctx.db.get("users", args.userId);
+    if (!user) fail("NOT_FOUND", "Pengguna tidak ditemukan.");
+    if (user._id === admin._id) fail("INVALID_STATE", "Tidak bisa menghapus akun sendiri.");
+    if (args.confirmName.trim() !== (user.name ?? "").trim()) {
+      fail("CONFIRM_MISMATCH", "Nama tidak cocok.");
+    }
+    const scheduled = await ctx.db
+      .query("payoutLines")
+      .withIndex("by_user_period", (q) => q.eq("userId", user._id))
+      .filter((q) => q.eq(q.field("status"), "SCHEDULED"))
+      .first();
+    if (scheduled) fail("INVALID_STATE", "Masih ada payout terjadwal untuk pengguna ini.");
+
+    // Login
+    const accounts = await ctx.db
+      .query("authAccounts")
+      .withIndex("userIdAndProvider", (q) => q.eq("userId", user._id))
+      .collect();
+    for (const account of accounts) {
+      const codes = await ctx.db
+        .query("authVerificationCodes")
+        .withIndex("accountId", (q) => q.eq("accountId", account._id))
+        .collect();
+      for (const code of codes) await ctx.db.delete("authVerificationCodes", code._id);
+      await ctx.db.delete("authAccounts", account._id);
+    }
+    const sessions = await ctx.db
+      .query("authSessions")
+      .withIndex("userId", (q) => q.eq("userId", user._id))
+      .collect();
+    for (const session of sessions) {
+      const tokens = await ctx.db
+        .query("authRefreshTokens")
+        .withIndex("sessionId", (q) => q.eq("sessionId", session._id))
+        .collect();
+      for (const token of tokens) await ctx.db.delete("authRefreshTokens", token._id);
+      await ctx.db.delete("authSessions", session._id);
+    }
+
+    // Owned-only rows
+    for (const row of await ctx.db
+      .query("payoutProfiles")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .collect()) {
+      await ctx.db.delete("payoutProfiles", row._id);
+    }
+    for (const row of await ctx.db
+      .query("commissionOverrides")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .collect()) {
+      await ctx.db.delete("commissionOverrides", row._id);
+    }
+    for (const row of await ctx.db
+      .query("invites")
+      .withIndex("by_l2", (q) => q.eq("l2Id", user._id))
+      .collect()) {
+      await ctx.db.delete("invites", row._id);
+    }
+    for (const row of await ctx.db
+      .query("notifications")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .collect()) {
+      await ctx.db.delete("notifications", row._id);
+    }
+
+    // Detach references that would otherwise dangle
+    for (const l1 of await ctx.db
+      .query("users")
+      .withIndex("by_l2", (q) => q.eq("assignedL2Id", user._id))
+      .collect()) {
+      await ctx.db.patch("users", l1._id, { assignedL2Id: undefined });
+    }
+    for (const merchant of await ctx.db
+      .query("merchants")
+      .withIndex("by_owner", (q) => q.eq("ownerL1Id", user._id))
+      .collect()) {
+      await ctx.db.patch("merchants", merchant._id, { ownerL1Id: undefined });
+    }
+    for (const req of await ctx.db
+      .query("registrationRequests")
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .collect()) {
+      await ctx.db.patch("registrationRequests", req._id, { userId: undefined });
+    }
+
+    await ctx.db.delete("users", user._id);
+    await audit(ctx, {
+      adminId: admin._id,
+      action: "DELETE_USER",
+      object: `user:${user._id}`,
+      oldValue: { name: user.name, email: user.email, mobile: user.mobile, role: user.role },
+    });
+    return null;
+  },
+});

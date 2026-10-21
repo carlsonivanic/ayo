@@ -320,3 +320,29 @@ export const rejectPayment = mutation({
     return { reversed, redeemedCodes: redeemed, activatedSeats, revoked };
   },
 });
+
+/**
+ * Frees storage once a transfer is confirmed. Only verified payments qualify;
+ * pending and rejected ones keep their receipt as evidence.
+ */
+export const deleteProof = mutation({
+  args: { linkId: v.id("paymentLinks") },
+  handler: async (ctx, args) => {
+    const admin = await requireAdmin(ctx);
+    const link = await ctx.db.get("paymentLinks", args.linkId);
+    if (!link) fail("NOT_FOUND", "Pembayaran tidak ditemukan.");
+    if (link.verification !== "VERIFIED") {
+      fail("INVALID_STATE", "Hanya bukti yang sudah terverifikasi yang bisa dihapus.");
+    }
+    if (!link.proofStorageId) fail("NOT_FOUND", "Bukti sudah dihapus.");
+
+    await ctx.storage.delete(link.proofStorageId);
+    await ctx.db.patch("paymentLinks", link._id, { proofStorageId: undefined });
+    await audit(ctx, {
+      adminId: admin._id,
+      action: "DELETE_PAYMENT_PROOF",
+      object: `paymentLink:${link._id}`,
+    });
+    return null;
+  },
+});

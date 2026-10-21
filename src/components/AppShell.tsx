@@ -34,7 +34,16 @@ import { api } from "@/convex/_generated/api";
 import { cn } from "@/lib/utils";
 import { Sheet } from "./ui/Feedback";
 
-type Item = { href: string; label: string; icon: typeof Home };
+type Item = { href: string; label: string; icon: typeof Home; group?: string };
+
+// Rail/sheet section order. Items without a group render first, unheaded.
+const GROUPS = ["Operasional", "Keuangan", "Pengaturan", "Tools", "Pengawasan"];
+
+function grouped(items: Item[]) {
+  const head = items.filter((i) => !i.group);
+  const sections = GROUPS.map((g) => ({ label: g, items: items.filter((i) => i.group === g) }));
+  return [{ label: "", items: head }, ...sections].filter((s) => s.items.length > 0);
+}
 
 const NAV: Record<string, { primary: Item[]; more: Item[] }> = {
   L1: {
@@ -62,24 +71,24 @@ const NAV: Record<string, { primary: Item[]; more: Item[] }> = {
   ADMIN: {
     primary: [
       { href: "/admin", label: "Beranda", icon: Home },
-      { href: "/penjualan", label: "Penjualan", icon: ShoppingBag },
-      { href: "/admin/pengguna", label: "Pengguna", icon: Users },
-      { href: "/admin/komisi", label: "Komisi", icon: Receipt },
-      { href: "/admin/payout", label: "Payout", icon: Banknote },
+      { href: "/penjualan", label: "Penjualan", icon: ShoppingBag, group: "Operasional" },
+      { href: "/admin/pengguna", label: "Pengguna", icon: Users, group: "Operasional" },
+      { href: "/admin/komisi", label: "Komisi", icon: Receipt, group: "Keuangan" },
+      { href: "/admin/payout", label: "Payout", icon: Banknote, group: "Keuangan" },
     ],
     more: [
-      { href: "/admin/tim", label: "Tim", icon: Network },
-      { href: "/admin/merchant", label: "Merchant", icon: Store },
-      { href: "/admin/laporan", label: "Laporan", icon: FileBarChart },
-      { href: "/admin/harga", label: "Harga", icon: Tags },
-      { href: "/admin/skema", label: "Skema", icon: Settings2 },
-      { href: "/admin/pembayaran", label: "Pembayaran", icon: CreditCard },
-      { href: "/admin/qris", label: "QRIS", icon: QrCode },
-      { href: "/admin/tutup-bulan", label: "Tutup bulan", icon: CalendarClock },
-      { href: "/admin/pengumuman", label: "Pengumuman", icon: Megaphone },
-      { href: "/admin/peta", label: "Peta", icon: Map },
-      { href: "/admin/audit", label: "Audit", icon: ShieldCheck },
-      { href: "/banner", label: "Banner", icon: ImageIcon },
+      { href: "/admin/tim", label: "Tim", icon: Network, group: "Operasional" },
+      { href: "/admin/merchant", label: "Merchant", icon: Store, group: "Operasional" },
+      { href: "/admin/pembayaran", label: "Pembayaran", icon: CreditCard, group: "Operasional" },
+      { href: "/admin/tutup-bulan", label: "Tutup bulan", icon: CalendarClock, group: "Keuangan" },
+      { href: "/admin/laporan", label: "Laporan", icon: FileBarChart, group: "Keuangan" },
+      { href: "/admin/harga", label: "Harga", icon: Tags, group: "Pengaturan" },
+      { href: "/admin/skema", label: "Skema", icon: Settings2, group: "Pengaturan" },
+      { href: "/admin/qris", label: "QRIS", icon: QrCode, group: "Pengaturan" },
+      { href: "/admin/pengumuman", label: "Pengumuman", icon: Megaphone, group: "Tools" },
+      { href: "/banner", label: "Banner", icon: ImageIcon, group: "Tools" },
+      { href: "/admin/peta", label: "Peta", icon: Map, group: "Pengawasan" },
+      { href: "/admin/audit", label: "Audit", icon: ShieldCheck, group: "Pengawasan" },
     ],
   },
 };
@@ -119,9 +128,18 @@ export function AppShell({
           <Link href="/" className="mb-6 flex items-center gap-2 px-2">
             <Wordmark />
           </Link>
-          <nav className="flex flex-1 flex-col gap-0.5">
-            {[...nav.primary, ...nav.more].map((item) => (
-              <RailLink key={item.href} item={item} active={isActive(item.href)} />
+          <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto">
+            {grouped([...nav.primary, ...nav.more]).map((section) => (
+              <div key={section.label} className="flex flex-col gap-0.5">
+                {section.label && (
+                  <span className="px-3 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-mute">
+                    {section.label}
+                  </span>
+                )}
+                {section.items.map((item) => (
+                  <RailLink key={item.href} item={item} active={isActive(item.href)} />
+                ))}
+              </div>
             ))}
           </nav>
           <Link
@@ -207,16 +225,25 @@ export function AppShell({
 
       <Sheet open={moreOpen} onClose={() => setMoreOpen(false)} title="Lainnya">
         <div className="-mx-4">
-          {nav?.more.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={() => setMoreOpen(false)}
-              className="flex items-center gap-3 border-b border-line px-4 py-3 text-[15px] last:border-0"
-            >
-              <item.icon className="h-5 w-5 text-ink-mute" />
-              {item.label}
-            </Link>
+          {grouped(nav?.more ?? []).map((section) => (
+            <div key={section.label}>
+              {section.label && (
+                <div className="px-4 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-mute">
+                  {section.label}
+                </div>
+              )}
+              {section.items.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => setMoreOpen(false)}
+                  className="flex items-center gap-3 border-b border-line px-4 py-3 text-[15px]"
+                >
+                  <item.icon className="h-5 w-5 text-ink-mute" />
+                  {item.label}
+                </Link>
+              ))}
+            </div>
           ))}
           <Link
             href="/profil"

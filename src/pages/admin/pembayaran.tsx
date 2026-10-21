@@ -201,6 +201,8 @@ function Detail({ payment, onClose }: { payment: Payment; onClose: () => void })
   const verify = useMutation(api.admin.payments.verifyPayment);
   const reject = useMutation(api.admin.payments.rejectPayment);
   const refund = useMutation(api.admin.ops.processManualRefundException);
+  const deleteProof = useMutation(api.admin.payments.deleteProof);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const toast = useToast();
   const fmt = useMoney();
   const [reason, setReason] = useState("");
@@ -237,7 +239,25 @@ function Detail({ payment, onClose }: { payment: Payment; onClose: () => void })
 
         {payment.proofUrl && (
           <div>
-            <p className="eyebrow mb-2">Bukti bayar</p>
+            <div className="mb-2 flex items-center justify-between">
+              <p className="eyebrow">Bukti bayar</p>
+              {payment.verification === "VERIFIED" && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  className="press text-[13px] font-medium text-warn"
+                  onClick={() => {
+                    if (!confirmDelete) return setConfirmDelete(true);
+                    void run(
+                      () => deleteProof({ linkId: payment.id as Id<"paymentLinks"> }),
+                      "Bukti dihapus",
+                    );
+                  }}
+                >
+                  {confirmDelete ? "Yakin hapus?" : "Hapus gambar"}
+                </button>
+              )}
+            </div>
             <a href={payment.proofUrl} target="_blank" rel="noreferrer" className="press block">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img

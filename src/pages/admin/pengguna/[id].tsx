@@ -35,10 +35,11 @@ function Body() {
   const releaseHeld = useMutation(api.admin.ops.manualHeldRelease);
   const createAdjustment = useMutation(api.admin.ops.createAdjustment);
   const editPayoutProfile = useMutation(api.admin.users.editPayoutProfile);
+  const deleteUser = useMutation(api.admin.users.deleteUser);
   const toast = useToast();
   const fmt = useMoney();
 
-  const [sheet, setSheet] = useState<"edit" | "suspend" | "held" | "adjust" | "dana" | null>(
+  const [sheet, setSheet] = useState<"edit" | "suspend" | "held" | "adjust" | "dana" | "delete" | null>(
     null,
   );
   const [dana, setDana] = useState({ accountNumber: "", accountName: "" });
@@ -264,6 +265,16 @@ function Body() {
                   Aktifkan kembali
                 </Button>
               ) : null}
+              <Button
+                variant="danger"
+                block
+                onClick={() => {
+                  setReason("");
+                  setSheet("delete");
+                }}
+              >
+                Hapus pengguna
+              </Button>
             </div>
           </>
         )}
@@ -347,6 +358,39 @@ function Body() {
             />
           </Field>
         </div>
+      </Sheet>
+
+      <Sheet
+        open={sheet === "delete"}
+        onClose={() => setSheet(null)}
+        title="Hapus pengguna"
+        footer={
+          <Button
+            variant="danger"
+            block
+            disabled={busy || reason.trim() !== user.name.trim()}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                await deleteUser({ userId: user.id, confirmName: reason });
+                toast("Pengguna dihapus");
+                void router.replace("/admin/pengguna");
+              } catch (err) {
+                toast(errorMessage(err), "warn");
+                setBusy(false);
+              }
+            }}
+          >
+            Hapus permanen
+          </Button>
+        }
+      >
+        <Field
+          label={`Ketik "${user.name}" untuk konfirmasi`}
+          hint="Tidak bisa dibatalkan. Riwayat komisi tetap tersimpan."
+        >
+          <Input value={reason} onChange={(e) => setReason(e.target.value)} />
+        </Field>
       </Sheet>
 
       <Sheet
