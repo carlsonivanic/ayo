@@ -26,6 +26,7 @@ import type * as http from "../http.js";
 import type * as lib_audit from "../lib/audit.js";
 import type * as lib_authz from "../lib/authz.js";
 import type * as lib_codegen from "../lib/codegen.js";
+import type * as lib_codes from "../lib/codes.js";
 import type * as lib_commission from "../lib/commission.js";
 import type * as lib_ledger from "../lib/ledger.js";
 import type * as lib_licenseToken from "../lib/licenseToken.js";
@@ -84,6 +85,7 @@ declare const fullApi: ApiFromModules<{
   "lib/audit": typeof lib_audit;
   "lib/authz": typeof lib_authz;
   "lib/codegen": typeof lib_codegen;
+  "lib/codes": typeof lib_codes;
   "lib/commission": typeof lib_commission;
   "lib/ledger": typeof lib_ledger;
   "lib/licenseToken": typeof lib_licenseToken;
