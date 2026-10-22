@@ -90,6 +90,43 @@ export const pathLockCheck = internalMutation({
 
 // --- subscription redemption (§7.3) ----------------------------------------
 
+/** A lifetime seat's code typed into the same box as a subscription code. */
+async function redeemSeatCode(
+  ctx: MutationCtx,
+  value: string,
+  storeId: string,
+  storeName: string | undefined,
+): Promise<
+  | Failure
+  | {
+      ok: true;
+      redemptionType: "FIRST_ACTIVATION";
+      expiresAt: null;
+      planKey: string;
+      lifetime: true;
+    }
+> {
+  const seat = await ctx.db
+    .query("lifetimeSeats")
+    .withIndex("by_code", (q) => q.eq("code", value))
+    .unique();
+  if (!seat) return { ok: false, error: "invalid_code" };
+  if (seat.status === "ACTIVATED") return { ok: false, error: "code_used" };
+  if (seat.status === "VOID") return { ok: false, error: "seat_void" };
+  const result = await activateSeat(ctx, seat, storeId, storeName);
+  if (!result.activated) {
+    return { ok: false, error: result.reason === "NOT_PROSPECT" ? "path_locked" : "blocked" };
+  }
+  const plan = await ctx.db.get("productPlans", seat.planId);
+  return {
+    ok: true,
+    redemptionType: "FIRST_ACTIVATION",
+    expiresAt: null,
+    planKey: plan?.key ?? "LIFETIME",
+    lifetime: true,
+  };
+}
+
 export const redeemSubscriptionCode = internalMutation({
   args: {
     code: v.string(),
@@ -111,11 +148,12 @@ export const redeemSubscriptionCode = internalMutation({
       }
   > => {
     const now = Date.now();
+    const typed = args.code.trim().toUpperCase();
     const code = await ctx.db
       .query("subscriptionCodes")
-      .withIndex("by_code", (q) => q.eq("code", args.code.trim().toUpperCase()))
+      .withIndex("by_code", (q) => q.eq("code", typed))
       .unique();
-    if (!code) return { ok: false, error: "invalid_code" };
+    if (!code) return await redeemSeatCode(ctx, typed, args.storeId, args.storeName);
     if (code.status === "USED") return { ok: false, error: "code_used" };
     if (code.status === "EXPIRED") return { ok: false, error: "code_expired" };
     if (code.expiresAt < now) {

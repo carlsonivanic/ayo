@@ -42,11 +42,6 @@ export default function BayarPage() {
 
   if (!token || link === undefined) return <Splash />;
 
-  if (link && link.kind === "LIFETIME" && link.status === "SHARED") {
-    void router.replace(`/lifetime/${token}`);
-    return <Splash />;
-  }
-
   return (
     <main className="mx-auto flex min-h-[100dvh] w-full max-w-sm flex-col justify-center px-5 py-10">
       <div className="mb-6 flex justify-center">
@@ -209,11 +204,14 @@ function Checkout({ link, token }: { link: Link; token: string }) {
   );
 }
 
-/** Paid: the code, for as long as the buyer keeps the link. */
+/** Paid: the code(s), for as long as the buyer keeps the link. */
 function Paid({ link }: { link: Link }) {
-  const toast = useToast();
-  const code = link.codes[0] ?? null;
-  const deepLink = code ? `${SELLMORE_URL}/?code=${encodeURIComponent(code.code)}` : null;
+  const sub = link.codes[0] ?? null;
+  const codes = sub
+    ? [{ code: sub.code, expiresAt: sub.expiresAt as number | null, used: false }]
+    : link.seats
+        .filter((s) => s.code && s.status !== "VOID")
+        .map((s) => ({ code: s.code!, expiresAt: null, used: s.status === "ACTIVATED" }));
 
   return (
     <div className="space-y-4">
@@ -229,43 +227,20 @@ function Paid({ link }: { link: Link }) {
         </p>
       </div>
 
-      {code ? (
-        <Card className="overflow-hidden">
-          <div className="px-4 pb-4 pt-5 text-center">
-            <p className="eyebrow">Kode aktivasi</p>
-            <p className="num mt-2 text-[24px] font-semibold tracking-[0.06em]">
-              {code.code}
-            </p>
-            <p className="mt-2 text-[13px] text-ink-mute">
-              Berlaku {countdown(code.expiresAt)}
-            </p>
-          </div>
-          <div className="space-y-2 border-t border-line px-4 py-4">
-            {deepLink && (
-              <a href={deepLink}>
-                <Button block>Buka di SellMore</Button>
-              </a>
-            )}
-            <Button
-              block
-              variant="quiet"
-              onClick={async () => {
-                if (await copy(code.code)) toast("Kode disalin");
-              }}
-            >
-              <Copy className="h-[18px] w-[18px]" />
-              Salin kode
-            </Button>
-          </div>
-        </Card>
-      ) : link.kind === "LIFETIME" ? (
-        <Card className="p-5 text-center">
-          <p className="text-[15px] font-semibold">Buka SellMore untuk aktivasi</p>
-          <p className="mt-1 text-[13px] text-ink-mute">
-            {link.seats.length} kursi siap dipakai.
-          </p>
-        </Card>
-      ) : null}
+      {codes.map((c, i) => (
+        <CodeCard
+          key={c.code}
+          code={c.code}
+          label={codes.length > 1 ? `Kode aktivasi ${i + 1}` : "Kode aktivasi"}
+          sub={
+            c.used
+              ? "Sudah dipakai"
+              : c.expiresAt
+                ? `Berlaku ${countdown(c.expiresAt)}`
+                : "Satu kode untuk satu toko"
+          }
+        />
+      ))}
 
       {link.proof?.verification === "PENDING" && (
         <p className="text-center text-[13px] text-ink-mute">
@@ -295,5 +270,33 @@ function Paid({ link }: { link: Link }) {
         </a>
       )}
     </div>
+  );
+}
+
+function CodeCard({ code, label, sub }: { code: string; label: string; sub: string }) {
+  const toast = useToast();
+  return (
+    <Card className="overflow-hidden">
+      <div className="px-4 pb-4 pt-5 text-center">
+        <p className="eyebrow">{label}</p>
+        <p className="num mt-2 text-[24px] font-semibold tracking-[0.06em]">{code}</p>
+        <p className="mt-2 text-[13px] text-ink-mute">{sub}</p>
+      </div>
+      <div className="space-y-2 border-t border-line px-4 py-4">
+        <a href={`${SELLMORE_URL}/?code=${encodeURIComponent(code)}`}>
+          <Button block>Buka di SellMore</Button>
+        </a>
+        <Button
+          block
+          variant="quiet"
+          onClick={async () => {
+            if (await copy(code)) toast("Kode disalin");
+          }}
+        >
+          <Copy className="h-[18px] w-[18px]" />
+          Salin kode
+        </Button>
+      </div>
+    </Card>
   );
 }

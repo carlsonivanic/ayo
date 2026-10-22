@@ -1,4 +1,5 @@
 import { internalMutation } from "./_generated/server";
+import { newActivationCode } from "./lib/codes";
 import { notify, notifyAdmins } from "./lib/notify";
 import { DAY_MS, addMonths } from "./lib/period";
 import { getSettings } from "./lib/settings";
@@ -167,5 +168,20 @@ export const notifyWindowEnded = internalMutation({
       }
     }
     return { notified };
+  },
+});
+
+/** One-off: seats sold before lifetime codes existed get one. Re-run until 0. */
+export const backfillSeatCodes = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const seats = await ctx.db
+      .query("lifetimeSeats")
+      .withIndex("by_code", (q) => q.eq("code", undefined))
+      .take(200);
+    for (const seat of seats) {
+      await ctx.db.patch("lifetimeSeats", seat._id, { code: await newActivationCode(ctx) });
+    }
+    return seats.length;
   },
 });

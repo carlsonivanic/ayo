@@ -8,11 +8,12 @@ import { notify, notifyAdmins } from "./lib/notify";
 import { planForAgent } from "./lib/overrides";
 import { addDays } from "./lib/period";
 import { getSettings } from "./lib/settings";
+import { newActivationCode } from "./lib/codes";
 import { randomToken } from "./lib/tokens";
 
-// §2.2 / §15.6 — unified seats. Lifetime never uses codes: one mechanism covers
-// Single (1 seat) and Duo (2 seats), and a blocked seat always returns to the
-// buyer's pool rather than being refunded.
+// §2.2 / §15.6 — unified seats. One mechanism covers Single (1 seat) and Duo
+// (2 seats), and a blocked seat always returns to the buyer's pool rather than
+// being refunded. Each seat carries its own activation code.
 
 /**
  * Called from the payment path once a lifetime purchase settles.
@@ -68,6 +69,7 @@ export async function onLifetimePaid(
         status: "POOLED",
         regenerationCount: 0,
         unitValue,
+        code: await newActivationCode(ctx),
       }),
     );
   }

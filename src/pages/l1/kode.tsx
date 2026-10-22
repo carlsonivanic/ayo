@@ -131,8 +131,7 @@ function LinkList({ links }: { links: Links | undefined }) {
   if (links.length === 0) return <Empty title="Belum ada tautan." />;
 
   const origin = typeof window === "undefined" ? "" : window.location.origin;
-  const urlOf = (link: Links[number]) =>
-    `${origin}/${link.kind === "LIFETIME" ? "lifetime" : "bayar"}/${link.token}`;
+  const urlOf = (link: Links[number]) => `${origin}/bayar/${link.token}`;
 
   return (
     <div className="space-y-3">
@@ -179,22 +178,25 @@ function LinkList({ links }: { links: Links | undefined }) {
               </div>
             )}
 
-            {link.code && (
-              <div className="flex items-center justify-between gap-3 border-t border-line px-4 py-2.5">
+            {link.codes.map((code) => (
+              <div
+                key={code}
+                className="flex items-center justify-between gap-3 border-t border-line px-4 py-2.5"
+              >
                 <span className="num truncate text-[15px] font-semibold tracking-[0.05em]">
-                  {link.code}
+                  {code}
                 </span>
                 <button
                   aria-label="Salin kode"
                   onClick={async () => {
-                    if (await copy(link.code!)) toast("Kode disalin");
+                    if (await copy(code)) toast("Kode disalin");
                   }}
                   className="rounded p-2 text-ink-mute hover:bg-black/[0.04]"
                 >
                   <Copy className="h-4 w-4" />
                 </button>
               </div>
-            )}
+            ))}
 
             {open && (
               <div className="flex items-center justify-between gap-3 border-t border-line bg-black/[0.015] px-4 py-2">

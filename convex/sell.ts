@@ -9,7 +9,6 @@ import { findPayoutProfile, isPayoutReady } from "./lib/payoutProfile";
 import { planForAgent } from "./lib/overrides";
 import { getSettings } from "./lib/settings";
 import { randomToken } from "./lib/tokens";
-import { issueSeatLink } from "./seats";
 
 // §4 sell flow. The L1 never enters merchant data — a link is created, shared on
 // WhatsApp, and everything else resolves from the payment and the redemption.
@@ -137,10 +136,16 @@ export const myLinks = query({
           .query("subscriptionCodes")
           .withIndex("by_payment_link", (q) => q.eq("paymentLinkId", link._id))
           .collect();
+        const seats = await ctx.db
+          .query("lifetimeSeats")
+          .withIndex("by_payment_link", (q) => q.eq("paymentLinkId", link._id))
+          .collect();
         return {
           ...shapeLink(link, await ctx.db.get("productPlans", link.planId)),
-          code: codes[0]?.code ?? null,
-          codeStatus: codes[0]?.status ?? null,
+          codes: [
+            ...codes.slice(0, 1).map((c) => c.code),
+            ...seats.flatMap((s) => (s.code && s.status !== "VOID" ? [s.code] : [])),
+          ],
         };
       }),
     );
@@ -219,7 +224,7 @@ export const publicLink = query({
       })),
       seats: seats.map((s) => ({
         seatIndex: s.seatIndex,
-        token: s.activationLinkToken ?? null,
+        code: s.code ?? null,
         status: s.status,
       })),
     };
@@ -289,25 +294,9 @@ export const linkDetail = query({
         id: s._id,
         seatIndex: s.seatIndex,
         status: s.status,
-        token: s.activationLinkToken ?? null,
-        expiresAt: s.linkExpiresAt ?? null,
+        code: s.code ?? null,
       })),
     };
-  },
-});
-
-/**
- * §15.6 — a pooled seat becomes a shareable activation link. The POS can do
- * this itself; with manual settlement the L1 needs it too, because they are
- * standing in front of the buyer when the transfer lands.
- */
-export const createSeatLink = mutation({
-  args: { seatId: v.id("lifetimeSeats") },
-  handler: async (ctx, args) => {
-    const l1 = await requireL1(ctx);
-    const seat = await ctx.db.get("lifetimeSeats", args.seatId);
-    if (!seat || seat.sellerL1Id !== l1._id) fail("NOT_FOUND", "Kursi tidak ditemukan.");
-    return await issueSeatLink(ctx, seat);
   },
 });
 
@@ -361,6 +350,7 @@ export const mySeats = query({
           planName: plan?.name ?? "",
           seatIndex: s.seatIndex,
           status: s.status,
+          code: s.code ?? null,
           linkExpiresAt: s.linkExpiresAt ?? null,
           activatedAt: s.activatedAt ?? null,
           storeName: merchant?.storeName ?? null,
