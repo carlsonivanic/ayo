@@ -329,8 +329,11 @@ export default defineSchema({
     activatedAt: v.optional(v.number()),
     regenerationCount: v.number(),
     unitValue: v.number(), // §24.3 unactivated seat obligation
+    // SM- activation code, redeemed like a subscription code. Never expires.
+    code: v.optional(v.string()),
   })
     .index("by_token", ["activationLinkToken"])
+    .index("by_code", ["code"])
     .index("by_status", ["status"])
     .index("by_buyer_store_id", ["buyerSellMoreStoreId"])
     .index("by_payment_link", ["paymentLinkId"])

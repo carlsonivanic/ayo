@@ -693,6 +693,49 @@ describe("buyer-side settlement on a shared link (§4.4)", () => {
     });
   });
 
+  test("a lifetime duo paid on the link shows one code per seat", async () => {
+    const c = await setup();
+    const link = await asUser(c, c.sellerId).mutation(api.sell.createPaymentLink, {
+      planId: c.duoId,
+    });
+    await c.t.mutation(api.payments.submitBuyerProof, {
+      token: link.token,
+      storageId: await storeProof(c),
+    });
+
+    const view = await c.t.query(api.sell.publicLink, { token: link.token });
+    const codes = view!.seats.map((s) => s.code!);
+    expect(codes).toHaveLength(2);
+    expect(new Set(codes).size).toBe(2);
+
+    const first = await c.t.mutation(internal.sdk.redeemSubscriptionCode, {
+      code: codes[0].toLowerCase(),
+      storeId: "BUYER-1",
+    });
+    expect(first.ok && first.lifetime).toBe(true);
+    const again = await c.t.mutation(internal.sdk.redeemSubscriptionCode, {
+      code: codes[0],
+      storeId: "BUYER-2",
+    });
+    expect(again).toEqual({ ok: false, error: "code_used" });
+    // A store that already exists is path-locked; the seat stays redeemable.
+    const locked = await c.t.mutation(internal.sdk.redeemSubscriptionCode, {
+      code: codes[1],
+      storeId: "BUYER-1",
+    });
+    expect(locked).toEqual({ ok: false, error: "path_locked" });
+    const second = await c.t.mutation(internal.sdk.redeemSubscriptionCode, {
+      code: codes[1],
+      storeId: "BUYER-2",
+    });
+    expect(second.ok).toBe(true);
+
+    await c.t.run(async (ctx) => {
+      const merchants = await ctx.db.query("merchants").collect();
+      expect(merchants.map((m) => m.subscriptionStatus)).toEqual(["LIFETIME", "LIFETIME"]);
+    });
+  });
+
   test("a link can only be settled once, whoever uploads", async () => {
     const c = await setup();
     const link = await asUser(c, c.sellerId).mutation(api.sell.createPaymentLink, {

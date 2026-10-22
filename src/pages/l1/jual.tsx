@@ -158,7 +158,6 @@ function Checkout({ created, onClose }: { created: Created; onClose: () => void 
   const detail = useQuery(api.sell.linkDetail, { linkId: created.linkId });
   const uploadUrl = useMutation(api.payments.generateProofUploadUrl);
   const submitProof = useMutation(api.payments.submitPaymentProof);
-  const createSeatLink = useMutation(api.sell.createSeatLink);
   const fmt = useMoney();
   const toast = useToast();
   const fileInput = useRef<HTMLInputElement>(null);
@@ -167,8 +166,11 @@ function Checkout({ created, onClose }: { created: Created; onClose: () => void 
 
   const paid = detail?.status === "PAID";
   const origin = typeof window === "undefined" ? "" : window.location.origin;
-  const code = detail?.codes[0]?.code ?? null;
-  const payUrl = `${origin}/${created.kind === "LIFETIME" ? "lifetime" : "bayar"}/${created.token}`;
+  const lifetime = created.kind === "LIFETIME";
+  const codes = lifetime
+    ? (detail?.seats ?? []).flatMap((s) => (s.code && s.status !== "VOID" ? [s.code] : []))
+    : (detail?.codes ?? []).slice(0, 1).map((c) => c.code);
+  const payUrl = `${origin}/bayar/${created.token}`;
 
   async function upload(file: File) {
     if (!file.type.startsWith("image/") && file.type !== "application/pdf") {
@@ -207,9 +209,12 @@ function Checkout({ created, onClose }: { created: Created; onClose: () => void 
     `Pembayaran SellMore ${created.planName} — ${money(created.qrisAmount)}\n` +
     `Scan QRIS dan unggah bukti transfer di tautan ini, kode aktivasi langsung muncul:\n${payUrl}`;
 
-  const codeMessage = code
-    ? `Kode aktivasi SellMore Anda: ${code}\n\nMasukkan di aplikasi SellMore. Berlaku 7 hari.`
-    : shareMessage;
+  const codeMessage =
+    codes.length > 0
+      ? `Kode aktivasi SellMore Anda:\n${codes.join("\n")}\n\nMasukkan di aplikasi SellMore. ${
+          lifetime ? "Satu kode untuk satu toko." : "Berlaku 7 hari."
+        }`
+      : shareMessage;
 
   return (
     <Sheet
@@ -307,8 +312,9 @@ function Checkout({ created, onClose }: { created: Created; onClose: () => void 
 
       {paid && detail && (
         <div className="space-y-4">
-          {code && (
+          {codes.map((code) => (
             <button
+              key={code}
               onClick={async () => {
                 if (await copy(code)) toast("Kode disalin");
               }}
@@ -319,38 +325,6 @@ function Checkout({ created, onClose }: { created: Created; onClose: () => void 
               </span>
               <Copy className="h-4 w-4 shrink-0 text-ink-mute" />
             </button>
-          )}
-
-          {detail.seats.map((seat) => (
-            <div
-              key={seat.id}
-              className="flex items-center justify-between gap-3 rounded border border-line px-3 py-3"
-            >
-              <span className="text-[14px]">Kursi {seat.seatIndex}</span>
-              {seat.token ? (
-                <button
-                  onClick={async () => {
-                    if (await copy(`${origin}/kursi/${seat.token}`)) toast("Tautan disalin");
-                  }}
-                  className="text-[13px] font-semibold underline underline-offset-4"
-                >
-                  Salin tautan
-                </button>
-              ) : (
-                <button
-                  onClick={async () => {
-                    try {
-                      await createSeatLink({ seatId: seat.id });
-                    } catch (err) {
-                      toast(errorMessage(err), "warn");
-                    }
-                  }}
-                  className="text-[13px] font-semibold underline underline-offset-4"
-                >
-                  Buat tautan
-                </button>
-              )}
-            </div>
           ))}
 
           <p className="text-[13px] text-ink-mute">

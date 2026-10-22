@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
 import { MutationCtx, internalMutation, mutation } from "./_generated/server";
 import { fail, rateLimit, requireL1 } from "./lib/authz";
-import { generateCodeString } from "./lib/codegen";
+import { newActivationCode } from "./lib/codes";
 import { insertEarning } from "./lib/ledger";
 import { pctOf } from "./lib/money";
 import { notify, notifyAdmins } from "./lib/notify";
@@ -19,18 +19,6 @@ import { onLifetimePaid } from "./seats";
 // and books the commission FROZEN. Frozen lines are excluded from month-end
 // gross and from every payout run, so an unverified payment can never pay out.
 // An admin verifying the transfer unfreezes them; rejecting reverses them.
-
-async function newCode(ctx: MutationCtx): Promise<string> {
-  for (let attempt = 0; attempt < 8; attempt++) {
-    const candidate = generateCodeString();
-    const clash = await ctx.db
-      .query("subscriptionCodes")
-      .withIndex("by_code", (q) => q.eq("code", candidate))
-      .unique();
-    if (!clash) return candidate;
-  }
-  fail("CODE_GENERATION_FAILED", "Gagal membuat kode.");
-}
 
 /** §10 — tenure starts at the first successful payment, and the L2 hears about it. */
 async function markFirstPayment(ctx: MutationCtx, l1Id: Id<"users">, at: number) {
@@ -105,7 +93,7 @@ export async function settle(
 
   if (plan.category === "SUBSCRIPTION") {
     const settings = await getSettings(ctx);
-    code = await newCode(ctx);
+    code = await newActivationCode(ctx);
     const codeId = await ctx.db.insert("subscriptionCodes", {
       code,
       paymentLinkId: link._id,
