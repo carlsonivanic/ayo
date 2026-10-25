@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
-import { MutationCtx, internalMutation, internalQuery } from "./_generated/server";
+import { MutationCtx, QueryCtx, internalMutation, internalQuery } from "./_generated/server";
 import { recurringCommission, renewalIncentive, yearBucket } from "./lib/commission";
 import { insertEarning, recordAcquisition, recordMerchantPayment } from "./lib/ledger";
 import { pctOf } from "./lib/money";
@@ -46,6 +46,15 @@ function nextExpiry(
   return addMonths(base, plan.durationMonths);
 }
 
+/** Store the Applocator device id when the POS sends one. Absent never clears. */
+async function notePinger(ctx: MutationCtx, storeId: string, pingerDeviceId?: string) {
+  if (!pingerDeviceId) return;
+  const merchant = await merchantByStore(ctx, storeId);
+  if (merchant && merchant.pingerDeviceId !== pingerDeviceId) {
+    await ctx.db.patch("merchants", merchant._id, { pingerDeviceId });
+  }
+}
+
 // --- state ------------------------------------------------------------------
 
 export const merchantState = internalQuery({
@@ -68,6 +77,15 @@ export const merchantState = internalQuery({
       planKey: plan?.key ?? null,
       storeName: merchant.storeName ?? null,
     };
+  },
+});
+
+/** /api/v1/validate carries the pinger id; merchantState stays a query. */
+export const notePingerDevice = internalMutation({
+  args: { storeId: v.string(), pingerDeviceId: v.string() },
+  handler: async (ctx, args) => {
+    await notePinger(ctx, args.storeId, args.pingerDeviceId);
+    return null;
   },
 });
 
@@ -133,6 +151,7 @@ export const redeemSubscriptionCode = internalMutation({
     storeId: v.string(),
     storeName: v.optional(v.string()),
     location: v.optional(v.string()),
+    pingerDeviceId: v.optional(v.string()),
   },
   handler: async (
     ctx,
@@ -153,7 +172,11 @@ export const redeemSubscriptionCode = internalMutation({
       .query("subscriptionCodes")
       .withIndex("by_code", (q) => q.eq("code", typed))
       .unique();
-    if (!code) return await redeemSeatCode(ctx, typed, args.storeId, args.storeName);
+    if (!code) {
+      const seat = await redeemSeatCode(ctx, typed, args.storeId, args.storeName);
+      if (seat.ok) await notePinger(ctx, args.storeId, args.pingerDeviceId);
+      return seat;
+    }
     if (code.status === "USED") return { ok: false, error: "code_used" };
     if (code.status === "EXPIRED") return { ok: false, error: "code_expired" };
     if (code.expiresAt < now) {
@@ -203,6 +226,7 @@ export const redeemSubscriptionCode = internalMutation({
         subscriptionStatus: "SUBSCRIBED",
         currentExpiryAt: expiry,
         lastSeenAt: now,
+        pingerDeviceId: args.pingerDeviceId,
       });
 
       const amount = pctOf(price, (await planForAgent(ctx, code.l1Id, plan)).y1Percent);
@@ -380,6 +404,8 @@ export const redeemSubscriptionCode = internalMutation({
       currentExpiryAt: expiry,
       storeName: args.storeName ?? merchant.storeName,
       lastSeenAt: now,
+      // A missing id never clears a stored one.
+      ...(args.pingerDeviceId ? { pingerDeviceId: args.pingerDeviceId } : {}),
     });
     await ctx.db.patch("subscriptionCodes", code._id, {
       status: "USED",
@@ -610,5 +636,102 @@ export const seatPool = internalQuery({
       token: s.activationLinkToken ?? null,
       expiresAt: s.linkExpiresAt ?? null,
     }));
+  },
+});
+
+// --- licence transfer (claim) -----------------------------------------------
+// A new SellMore install takes over an old store's licence once Applocator
+// shows the old device offline. The liveness fetch lives in the HTTP action;
+// these functions only read and move the row.
+
+export type Licence = { active: boolean; lifetime: boolean; expiresAt: number | null; planKey: string | null };
+
+async function licenceOf(ctx: QueryCtx, merchant: Doc<"merchants">, now: number): Promise<Licence> {
+  const plan = merchant.currentPlanId
+    ? await ctx.db.get("productPlans", merchant.currentPlanId)
+    : null;
+  const lifetime = merchant.subscriptionStatus === "LIFETIME";
+  return {
+    active: lifetime || (merchant.currentExpiryAt ?? 0) > now,
+    lifetime,
+    expiresAt: merchant.currentExpiryAt ?? null,
+    planKey: plan?.key ?? (lifetime ? "LIFETIME" : null),
+  };
+}
+
+function expired(merchant: Doc<"merchants">, now: number): boolean {
+  return (
+    merchant.subscriptionStatus !== "LIFETIME" &&
+    (merchant.subscriptionStatus === "CHURNED" || (merchant.currentExpiryAt ?? 0) <= now)
+  );
+}
+
+export const claimPrecheck = internalQuery({
+  args: { claimStoreId: v.string(), claimantStoreId: v.string(), now: v.number() },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<
+    | { kind: "already_claimed"; licence: Licence }
+    | { kind: "not_found" }
+    | { kind: "expired"; expiresAt: number | null }
+    | { kind: "eligible"; pingerDeviceId: string | null; lastTouch: number }
+  > => {
+    const byStore = (storeId: string) =>
+      ctx.db
+        .query("merchants")
+        .withIndex("by_store_id", (q) => q.eq("sellMoreStoreId", storeId))
+        .unique();
+    const claimant = await byStore(args.claimantStoreId);
+    if (claimant) {
+      return { kind: "already_claimed", licence: await licenceOf(ctx, claimant, args.now) };
+    }
+    const merchant = await byStore(args.claimStoreId);
+    if (!merchant) return { kind: "not_found" };
+    if (expired(merchant, args.now)) {
+      return { kind: "expired", expiresAt: merchant.currentExpiryAt ?? null };
+    }
+    return {
+      kind: "eligible",
+      pingerDeviceId: merchant.pingerDeviceId ?? null,
+      lastTouch: Math.max(merchant.lastSeenAt ?? 0, merchant.firstActivatedAt),
+    };
+  },
+});
+
+/** The authoritative move. Re-reads both rows: first claim wins, no double move. */
+export const claimMove = internalMutation({
+  args: {
+    claimStoreId: v.string(),
+    claimantStoreId: v.string(),
+    claimantPingerDeviceId: v.optional(v.string()),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<
+    | { kind: "claimed" | "already_claimed"; licence: Licence }
+    | { kind: "not_found" }
+    | { kind: "expired"; expiresAt: number | null }
+  > => {
+    const now = Date.now();
+    const claimant = await merchantByStore(ctx, args.claimantStoreId);
+    if (claimant) {
+      return { kind: "already_claimed", licence: await licenceOf(ctx, claimant, now) };
+    }
+    const merchant = await merchantByStore(ctx, args.claimStoreId);
+    if (!merchant) return { kind: "not_found" };
+    if (expired(merchant, now)) {
+      return { kind: "expired", expiresAt: merchant.currentExpiryAt ?? null };
+    }
+    // Only identity moves; ownership, plan, expiry and the ledger stay put.
+    await ctx.db.patch("merchants", merchant._id, {
+      sellMoreStoreId: args.claimantStoreId,
+      claimedFrom: args.claimStoreId,
+      claimedAt: now,
+      lastSeenAt: now,
+      pingerDeviceId: args.claimantPingerDeviceId,
+    });
+    return { kind: "claimed", licence: await licenceOf(ctx, merchant, now) };
   },
 });

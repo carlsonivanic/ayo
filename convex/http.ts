@@ -3,6 +3,7 @@ import { internal } from "./_generated/api";
 import { ActionCtx, httpAction } from "./_generated/server";
 import { auth } from "./auth";
 import { signLicenseToken } from "./lib/licenseToken";
+import type { Licence } from "./sdk";
 
 // Two authentication domains meet here (§4 / P10):
 //   * SellMore device endpoints — shared secret in X-AYO-API-KEY.
@@ -116,6 +117,7 @@ const redeemHandler = httpAction(async (ctx, req) => {
     storeId,
     storeName: str(body.merchantName) ?? str(body.storeName),
     location: str(body.merchantLocation) ?? str(body.location),
+    pingerDeviceId: str(body.pingerDeviceId),
   });
   if (!result.ok) return errorResponse(result.error);
 
@@ -137,6 +139,10 @@ const validateHandler = httpAction(async (ctx, req) => {
   const storeId = body ? (str(body.deviceId) ?? str(body.storeId)) : undefined;
   if (!storeId) return json({ error: "bad_request" }, 400);
 
+  const pingerDeviceId = str(body?.pingerDeviceId);
+  if (pingerDeviceId) {
+    await ctx.runMutation(internal.sdk.notePingerDevice, { storeId, pingerDeviceId });
+  }
   const state = await ctx.runQuery(internal.sdk.merchantState, { storeId });
   if (state.state === "PROSPECT") return json({ status: "none", state: "PROSPECT" });
   const active =
@@ -150,6 +156,117 @@ const validateHandler = httpAction(async (ctx, req) => {
     creditDays: 0,
   });
 });
+
+// ---------------------------------------------------------------------------
+// Licence transfer. A new install claims an old store's licence once
+// Applocator shows the old device offline for 5 days. Fails closed: no
+// concrete stale timestamp, no move.
+// ---------------------------------------------------------------------------
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const OFFLINE_MS = 5 * DAY_MS;
+const LEGACY_IDLE_MS = 30 * DAY_MS;
+const APPLOCATOR_TIMEOUT_MS = 4000;
+
+type Liveness =
+  | { kind: "seen"; at: number }
+  | { kind: "unknown_device" }
+  | { kind: "liveness_unavailable" };
+
+async function applocatorLastSeen(deviceId: string): Promise<Liveness> {
+  const base = process.env.APPLOCATOR_URL;
+  const key = process.env.APPLOCATOR_LICENSE_READ_KEY;
+  if (!base || !key) return { kind: "liveness_unavailable" };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), APPLOCATOR_TIMEOUT_MS);
+  try {
+    const res = await fetch(
+      `${base.replace(/\/+$/, "")}/last-seen?device_id=${encodeURIComponent(deviceId)}`,
+      { headers: { Authorization: `Bearer ${key}` }, signal: controller.signal },
+    );
+    if (res.status === 404) return { kind: "unknown_device" };
+    if (res.status !== 200) return { kind: "liveness_unavailable" };
+    const body: unknown = await res.json();
+    const raw =
+      body && typeof body === "object" ? (body as Record<string, unknown>).last_seen : undefined;
+    const at = typeof raw === "string" ? Date.parse(raw) : NaN;
+    return Number.isFinite(at) ? { kind: "seen", at } : { kind: "liveness_unavailable" };
+  } catch {
+    return { kind: "liveness_unavailable" };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function licenceBody(licence: Licence) {
+  const activeUntil = licence.lifetime
+    ? Date.now() + LIFETIME_HORIZON_MS
+    : (licence.expiresAt ?? Date.now());
+  return {
+    token: await signLicenseToken(activeUntil),
+    tier: licence.planKey ? tierFor(licence.planKey) : null,
+    expiresAt: new Date(activeUntil).toISOString(),
+  };
+}
+
+const alreadyClaimed = async (licence: Licence) =>
+  json(
+    licence.active
+      ? { status: "already_claimed", ...(await licenceBody(licence)) }
+      : { status: "already_claimed", token: null, tier: null },
+  );
+
+const iso = (ms: number | null) => (ms === null ? null : new Date(ms).toISOString());
+
+const stillActive = (reason: string, lastSeenAt: number | null = null) =>
+  json({ status: "still_active", reason, lastSeenAt: iso(lastSeenAt) });
+
+const claimHandler = httpAction(async (ctx, req) => {
+  if (apiKeyRejected(req)) return json({ error: "unauthorized" }, 401);
+  const body = await readJson(req);
+  const claimStoreId = str(body?.claimStoreId);
+  const claimantStoreId = str(body?.claimantStoreId);
+  if (!claimStoreId || !claimantStoreId) {
+    return json(
+      { error: "bad_request", message: "claimStoreId dan claimantStoreId wajib diisi." },
+      400,
+    );
+  }
+  const claimantPingerDeviceId = str(body?.claimantPingerDeviceId);
+
+  const now = Date.now();
+  const pre = await ctx.runQuery(internal.sdk.claimPrecheck, {
+    claimStoreId,
+    claimantStoreId,
+    now,
+  });
+  if (pre.kind === "already_claimed") return await alreadyClaimed(pre.licence);
+  if (pre.kind === "not_found") return json({ status: "not_found" });
+  if (pre.kind === "expired") return json({ status: "expired", expiresAt: iso(pre.expiresAt) });
+
+  if (pre.pingerDeviceId) {
+    const seen = await applocatorLastSeen(pre.pingerDeviceId);
+    if (seen.kind !== "seen") return stillActive(seen.kind);
+    if (now - seen.at < OFFLINE_MS) return stillActive("device_online", seen.at);
+  } else if (now - pre.lastTouch < LEGACY_IDLE_MS) {
+    return stillActive("legacy_recent");
+  }
+
+  const moved = await ctx.runMutation(internal.sdk.claimMove, {
+    claimStoreId,
+    claimantStoreId,
+    claimantPingerDeviceId,
+  });
+  if (moved.kind === "already_claimed") return await alreadyClaimed(moved.licence);
+  if (moved.kind === "not_found") return json({ status: "not_found" });
+  if (moved.kind === "expired") {
+    return json({ status: "expired", expiresAt: iso(moved.expiresAt) });
+  }
+  return json({ status: "claimed", ...(await licenceBody(moved.licence)) });
+});
+
+http.route({ path: "/api/v1/claim", method: "OPTIONS", handler: preflight });
+http.route({ path: "/api/v1/claim", method: "POST", handler: claimHandler });
 
 for (const path of ["/api/v1/activate", "/api/v1/renew"]) {
   http.route({ path, method: "OPTIONS", handler: preflight });

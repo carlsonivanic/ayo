@@ -160,6 +160,10 @@ export default defineSchema({
     lat: v.optional(v.number()),
     lng: v.optional(v.number()),
     lastSeenAt: v.optional(v.number()),
+    // Licence transfer: Applocator is the only source of truth for "offline".
+    pingerDeviceId: v.optional(v.string()),
+    claimedFrom: v.optional(v.string()), // previous sellMoreStoreId
+    claimedAt: v.optional(v.number()),
   })
     .index("by_store_id", ["sellMoreStoreId"])
     .index("by_owner", ["ownerL1Id"])
