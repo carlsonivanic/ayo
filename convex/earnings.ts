@@ -7,10 +7,12 @@ import { pctOf } from "./lib/money";
 import { activeOverride, applyPlanOverride } from "./lib/overrides";
 import {
   addMonths,
+  DAY_MS,
   periodEnd,
   periodOf,
   periodStart,
   shiftPeriod,
+  weekStart,
 } from "./lib/period";
 import { getSettings } from "./lib/settings";
 
@@ -183,6 +185,36 @@ export const recent = query({
         };
       }),
     );
+  },
+});
+
+/**
+ * The Monday–Sunday week. A Wednesday payout run pays the week that ended the
+ * Sunday before it (`payouts.runWeekly`), so this card and the next payout line
+ * are always talking about the same seven days.
+ */
+export const week = query({
+  args: { now: v.number() },
+  handler: async (ctx, args) => {
+    const l1 = await requireL1(ctx);
+    const start = weekStart(args.now);
+    const end = start + 7 * DAY_MS;
+
+    const lines = await ctx.db
+      .query("earningLines")
+      .withIndex("by_l1_date", (q) => q.eq("l1Id", l1._id).gte("date", start).lt("date", end))
+      .collect();
+
+    const verified = lines.filter(
+      (l) => l.type === "NEW_SALES" && l.status === "CONFIRMED" && !l.frozen && !l.settledToCompany,
+    );
+
+    return {
+      weekStart: start,
+      weekEnd: end,
+      amount: verified.reduce((sum, l) => sum + l.amount, 0),
+      count: verified.length,
+    };
   },
 });
 

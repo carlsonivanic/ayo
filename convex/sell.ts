@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
 import { MutationCtx, mutation, query } from "./_generated/server";
 import { fail, requireActive, requireL1 } from "./lib/authz";
+import { normalizeMobile } from "./lib/mobile";
 import { pctOf } from "./lib/money";
 import { convertQRIS, qrisFrameInfo } from "./lib/qris";
 import { notify } from "./lib/notify";
@@ -45,12 +46,23 @@ export async function uniquePaymentAmount(
 }
 
 export const createPaymentLink = mutation({
-  args: { planId: v.id("productPlans") },
+  args: {
+    planId: v.id("productPlans"),
+    // Optional: the L1 can name the buyer before sending the link. Everything
+    // still resolves from the payment, so this never blocks a sale.
+    customerName: v.optional(v.string()),
+    customerPhone: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     const l1 = await requireL1(ctx);
     const plan = await ctx.db.get("productPlans", args.planId);
     if (!plan || !plan.active) fail("NOT_FOUND", "Paket tidak tersedia.");
     const settings = await getSettings(ctx);
+    const customerName = args.customerName?.trim() || undefined;
+    if (customerName && customerName.length < 2) {
+      fail("INVALID_NAME", "Nama pelanggan terlalu pendek.");
+    }
+    const customerPhone = normalizeMobile(args.customerPhone);
 
     const qris = settings.qris;
     if (!qris?.enabled || !qris.staticPayload) {
@@ -82,6 +94,8 @@ export const createPaymentLink = mutation({
       expiresAt,
       qrisPayload,
       qrisAmount,
+      customerName,
+      customerPhone,
     });
     return {
       linkId,

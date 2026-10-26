@@ -23,6 +23,8 @@ import type * as customers from "../customers.js";
 import type * as dashboard from "../dashboard.js";
 import type * as earnings from "../earnings.js";
 import type * as http from "../http.js";
+import type * as l1Analytics from "../l1Analytics.js";
+import type * as leaderboard from "../leaderboard.js";
 import type * as lib_audit from "../lib/audit.js";
 import type * as lib_authz from "../lib/authz.js";
 import type * as lib_codegen from "../lib/codegen.js";
@@ -57,6 +59,7 @@ import type * as seats from "../seats.js";
 import type * as seed from "../seed.js";
 import type * as selfRenew from "../selfRenew.js";
 import type * as sell from "../sell.js";
+import type * as settings from "../settings.js";
 import type * as team from "../team.js";
 import type * as users from "../users.js";
 
@@ -82,6 +85,8 @@ declare const fullApi: ApiFromModules<{
   dashboard: typeof dashboard;
   earnings: typeof earnings;
   http: typeof http;
+  l1Analytics: typeof l1Analytics;
+  leaderboard: typeof leaderboard;
   "lib/audit": typeof lib_audit;
   "lib/authz": typeof lib_authz;
   "lib/codegen": typeof lib_codegen;
@@ -116,6 +121,7 @@ declare const fullApi: ApiFromModules<{
   seed: typeof seed;
   selfRenew: typeof selfRenew;
   sell: typeof sell;
+  settings: typeof settings;
   team: typeof team;
   users: typeof users;
 }>;

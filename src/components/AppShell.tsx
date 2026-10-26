@@ -14,6 +14,7 @@ import {
   Megaphone,
   Network,
   MoreHorizontal,
+  Plus,
   Receipt,
   Send,
   Settings2,
@@ -49,12 +50,15 @@ const NAV: Record<string, { primary: Item[]; more: Item[] }> = {
   L1: {
     primary: [
       { href: "/l1", label: "Beranda", icon: Home },
+      { href: "/l1/pelanggan", label: "Pelanggan", icon: Store },
+      { href: "/l1/penghasilan", label: "Komisi", icon: Wallet },
+      { href: "/l1/pengaturan", label: "Pengaturan", icon: Settings2 },
+    ],
+    more: [
       { href: "/l1/jual", label: "Jual", icon: Send },
       { href: "/l1/kode", label: "Kode", icon: Ticket },
-      { href: "/l1/pelanggan", label: "Pelanggan", icon: Store },
-      { href: "/l1/penghasilan", label: "Penghasilan", icon: Wallet },
+      { href: "/banner", label: "Banner", icon: ImageIcon },
     ],
-    more: [{ href: "/banner", label: "Banner", icon: ImageIcon }],
   },
   L2: {
     primary: [
@@ -109,6 +113,9 @@ export function AppShell({
   const [moreOpen, setMoreOpen] = useState(false);
 
   const nav = me?.role ? NAV[me.role] : undefined;
+  // L1 gets four tabs and a sell button in the middle; the extras (Jual, Kode,
+  // Banner) live in the desktop rail and in the Beranda quick links.
+  const sell = me?.role === "L1";
   const matches = (href: string) =>
     href === router.pathname || (href !== "/" && router.pathname.startsWith(`${href}/`));
   // Section roots ("/admin", "/l1") prefix every sibling, so the most specific
@@ -205,18 +212,41 @@ export function AppShell({
 
       {nav && (
         <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
-          <div className="mx-auto flex max-w-3xl">
-            {nav.primary.map((item) => (
-              <TabLink key={item.href} item={item} active={isActive(item.href)} />
-            ))}
-            {nav.more.length > 0 && (
-              <button
-                onClick={() => setMoreOpen(true)}
-                className="flex flex-1 flex-col items-center gap-1 py-2.5 text-ink-mute"
-              >
-                <MoreHorizontal className="h-[22px] w-[22px]" />
-                <span className="text-[11px] font-medium">Lainnya</span>
-              </button>
+          <div className="mx-auto flex max-w-3xl items-stretch">
+            {sell ? (
+              <>
+                {nav.primary.slice(0, 2).map((item) => (
+                  <TabLink key={item.href} item={item} active={isActive(item.href)} />
+                ))}
+                <Link
+                  href="/l1/jual"
+                  aria-label="Jual"
+                  className="flex flex-1 flex-col items-center"
+                >
+                  <span className="-mt-5 flex h-14 w-14 items-center justify-center rounded-full bg-accent text-accent-ink shadow-lift ring-4 ring-surface">
+                    <Plus className="h-7 w-7" strokeWidth={2.4} />
+                  </span>
+                  <span className="pb-1 text-[11px] font-semibold text-ink">Jual</span>
+                </Link>
+                {nav.primary.slice(2).map((item) => (
+                  <TabLink key={item.href} item={item} active={isActive(item.href)} />
+                ))}
+              </>
+            ) : (
+              <>
+                {nav.primary.map((item) => (
+                  <TabLink key={item.href} item={item} active={isActive(item.href)} />
+                ))}
+                {nav.more.length > 0 && (
+                  <button
+                    onClick={() => setMoreOpen(true)}
+                    className="flex flex-1 flex-col items-center gap-1 py-2.5 text-ink-mute"
+                  >
+                    <MoreHorizontal className="h-[22px] w-[22px]" />
+                    <span className="text-[11px] font-medium">Lainnya</span>
+                  </button>
+                )}
+              </>
             )}
           </div>
         </nav>

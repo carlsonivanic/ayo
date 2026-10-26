@@ -8,6 +8,7 @@ import { QrisFrame } from "@/components/Qris";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Loading, Pill, Sheet, useToast } from "@/components/ui/Feedback";
+import { Field, Input } from "@/components/ui/Form";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { countdown, money } from "@/lib/format";
@@ -54,6 +55,8 @@ type Created = {
   planName: string;
   merchant: { merchantName: string; merchantCity: string; nmid: string | null };
   instructions: string | null;
+  customerName: string;
+  customerPhone: string;
 };
 
 const MAX_PROOF_BYTES = 8 * 1024 * 1024;
@@ -66,12 +69,39 @@ function Body() {
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
   const [created, setCreated] = useState<Created | null>(null);
+  const [customerName, setCustomerName] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+
+  const ready =
+    customerName.trim().length >= 2 && customerPhone.replace(/\D/g, "").length >= 8;
 
   async function create(planId: Id<"productPlans">, planName: string) {
+    if (!ready) {
+      toast("Isi nama dan nomor WhatsApp pelanggan dulu", "warn");
+      return;
+    }
     setBusy(planId);
     try {
-      const result = await createLink({ planId });
-      setCreated({ ...result, planName });
+      const result = await createLink({
+        planId,
+        customerName: customerName.trim(),
+        customerPhone: customerPhone.trim(),
+      });
+      setCreated({
+        ...result,
+        planName,
+        customerName: customerName.trim(),
+        customerPhone: customerPhone.trim(),
+      });
+
+      // The agent almost always sends the link on WhatsApp right away. Opening
+      // it here saves a tap; if the browser blocks the popup, the sheet's own
+      // WhatsApp button is the fallback.
+      const payUrl = `${window.location.origin}/bayar/${result.token}`;
+      const text =
+        `Pembayaran SellMore ${planName} — ${money(result.qrisAmount)}\n` +
+        `Scan QRIS dan unggah bukti transfer di tautan ini, kode aktivasi langsung muncul:\n${payUrl}`;
+      window.open(whatsappUrl(text, customerPhone.trim()), "_blank", "noopener");
     } catch (err) {
       toast(errorMessage(err), "warn");
     } finally {
@@ -93,6 +123,32 @@ function Body() {
           </Card>
         </Link>
       )}
+
+      <Card className="space-y-3 p-4">
+        <div>
+          <p className="eyebrow">Pelanggan</p>
+          <p className="mt-1 text-[13px] text-ink-mute">
+            Nama dan nomor dipakai untuk mengirim tautan pembayaran lewat WhatsApp.
+          </p>
+        </div>
+        <Field label="Nama pelanggan">
+          <Input
+            value={customerName}
+            onChange={(event) => setCustomerName(event.target.value)}
+            placeholder="Contoh: Budi Santoso"
+            autoComplete="name"
+          />
+        </Field>
+        <Field label="Nomor WhatsApp" hint="Contoh: 0812 3456 7890">
+          <Input
+            value={customerPhone}
+            onChange={(event) => setCustomerPhone(event.target.value)}
+            placeholder="08…"
+            inputMode="tel"
+            autoComplete="tel"
+          />
+        </Field>
+      </Card>
 
       <div className="space-y-3">
         {plans.map((plan) => (
@@ -131,7 +187,7 @@ function Body() {
               <Button
                 size="sm"
                 onClick={() => void create(plan.id, plan.name)}
-                disabled={busy !== null}
+                disabled={busy !== null || !ready}
               >
                 {busy === plan.id ? "Membuat…" : "Tagih"}
               </Button>
@@ -223,7 +279,11 @@ function Checkout({ created, onClose }: { created: Created; onClose: () => void 
       title={paid ? "Pembayaran tercatat" : created.planName}
       footer={
         paid ? (
-          <a href={whatsappUrl(codeMessage)} target="_blank" rel="noreferrer">
+          <a
+            href={whatsappUrl(codeMessage, created.customerPhone)}
+            target="_blank"
+            rel="noreferrer"
+          >
             <Button block>
               <MessageCircle className="h-[18px] w-[18px]" />
               Kirim kode ke pembeli
@@ -247,7 +307,11 @@ function Checkout({ created, onClose }: { created: Created; onClose: () => void 
             </Button>
           </>
         ) : (
-          <a href={whatsappUrl(shareMessage)} target="_blank" rel="noreferrer">
+          <a
+            href={whatsappUrl(shareMessage, created.customerPhone)}
+            target="_blank"
+            rel="noreferrer"
+          >
             <Button block>
               <MessageCircle className="h-[18px] w-[18px]" />
               Kirim lewat WhatsApp
@@ -256,6 +320,13 @@ function Checkout({ created, onClose }: { created: Created; onClose: () => void 
         )
       }
     >
+      <div className="mb-4 rounded border border-line bg-black/[0.015] px-3 py-2 text-[13px]">
+        <span className="text-ink-mute">Untuk</span>{" "}
+        <span className="font-semibold">{created.customerName}</span>
+        <span className="text-ink-faint"> · </span>
+        <span className="num">{created.customerPhone}</span>
+      </div>
+
       {!paid && (
         <div className="space-y-4">
           <Segmented value={mode} onChange={setMode} />
@@ -306,6 +377,20 @@ function Checkout({ created, onClose }: { created: Created; onClose: () => void 
             <p className="rounded border border-line bg-black/[0.015] px-3 py-2 text-[13px] text-ink-soft">
               {created.instructions}
             </p>
+          )}
+
+          {mode === "qris" && (
+            <a
+              href={whatsappUrl(shareMessage, created.customerPhone)}
+              target="_blank"
+              rel="noreferrer"
+              className="block"
+            >
+              <Button variant="quiet" block>
+                <MessageCircle className="h-[18px] w-[18px]" />
+                Kirim tautan lewat WhatsApp
+              </Button>
+            </a>
           )}
         </div>
       )}

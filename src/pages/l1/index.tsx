@@ -1,22 +1,24 @@
 import { useQuery } from "convex/react";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Image as ImageIcon, Ticket } from "lucide-react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useMemo } from "react";
+import { useRouter } from "next/router";
+import { useMemo, useState } from "react";
 import { AppShell } from "@/components/AppShell";
+import { CalonSheet } from "@/components/CalonSheet";
+import { CustomerTable, type CustomerRow } from "@/components/CustomerTable";
 import { Guard } from "@/components/Guard";
-import { Card, Row, SectionTitle, Stat } from "@/components/ui/Card";
-import { Loading, Pill } from "@/components/ui/Feedback";
-import { Ticks } from "@/components/ui/Ticks";
+import { Leaderboard } from "@/components/Leaderboard";
+import { Card, SectionTitle } from "@/components/ui/Card";
+import { Loading } from "@/components/ui/Feedback";
 import { api } from "@/convex/_generated/api";
-import { date, periodLabel } from "@/lib/format";
 import { useMoney } from "@/lib/useMoney";
 
 // Recharts measures the DOM, so the chart is client-only.
-const YearChart = dynamic(() => import("@/components/YearChart"), {
-  ssr: false,
-  loading: () => <div className="h-[132px]" />,
-});
+const SalesMixChart = dynamic(
+  () => import("@/components/SalesMixChart").then((m) => m.SalesMixChart),
+  { ssr: false, loading: () => <div className="h-[260px]" /> },
+);
 
 export default function L1Home() {
   return (
@@ -30,124 +32,37 @@ export default function L1Home() {
 
 function Body() {
   const now = useMemo(() => Date.now(), []);
-  const data = useQuery(api.dashboard.l1, { now });
-  const outlook = useQuery(api.projection.l1, { now });
-  const followUps = useQuery(api.performance.followUps, { now });
+  const router = useRouter();
   const fmt = useMoney();
+  const [range, setRange] = useState<"30d" | "12m">("12m");
+  const [calon, setCalon] = useState<CustomerRow | null>(null);
 
-  if (!data) return <Loading rows={4} />;
+  const mix30 = useQuery(api.l1Analytics.mix, { now, range: "30d" });
+  const mix12 = useQuery(api.l1Analytics.mix, { now, range: "12m" });
+  const mix = range === "30d" ? mix30 : mix12;
+  const customers = useQuery(api.customers.table, { now });
+  const board = useQuery(api.leaderboard.month, { now });
 
-  const warmthTone =
-    data.warmth.state === "WARM" ? "good" : data.warmth.state === "COLD" ? "warn" : "accent";
+  function open(row: CustomerRow) {
+    if (row.kind === "calon") setCalon(row);
+    else if (row.merchantId) void router.push(`/l1/pelanggan/${row.merchantId}`);
+  }
 
   return (
     <div className="space-y-5">
-      {/* One closing changes the whole year — so the year is what you see first. */}
       <Card className="overflow-hidden">
-        <div className="px-4 pb-2 pt-4">
-          <p className="eyebrow">Proyeksi {outlook?.year ?? new Date(now).getFullYear()}</p>
-          <p className="num mt-1 text-[30px] font-semibold leading-none tracking-[-0.02em]">
-            {fmt(outlook?.yearTotal ?? 0)}
-          </p>
-          <p className="mt-1.5 text-[13px] text-ink-mute">
-            {fmt(outlook?.realisedTotal ?? 0)} masuk · {fmt(outlook?.projectedTotal ?? 0)} menyusul
-          </p>
-        </div>
-        {outlook && (
-          <div className="px-2 pb-2">
-            <YearChart data={outlook.months} format={fmt} />
-          </div>
-        )}
-        <Row
-          label="Nilai pelanggan aktif"
-          sub={`${outlook?.activeCustomers ?? 0} pelanggan · sisa komisi sampai ${Math.round((outlook?.windowMonths ?? 36) / 12)} tahun`}
-          value={fmt(outlook?.portfolioValue ?? 0)}
-          tone="good"
-        />
-      </Card>
-
-      {/* Target still governs warmth and the guarantee — it just is not the story. */}
-      <Card className="px-4 py-3">
-        <div className="flex items-center justify-between gap-3">
-          <p className="eyebrow">
-            Target bulan ke-{data.tenureMonth} · sisa {daysLeft(now)} hari
-          </p>
-          <div className="flex items-center gap-2">
-            {data.warmth.active && data.warmth.state && (
-              <Pill tone={warmthTone}>{data.warmth.state}</Pill>
-            )}
-            <span className="num text-[13px] font-semibold">
-              {data.activations}
-              <span className="text-ink-faint">/{data.target}</span>
-            </span>
-          </div>
-        </div>
-        <div className="mt-2.5">
-          <Ticks
-            value={data.activations}
-            target={data.target}
-            threshold={data.warmth.active ? data.warmth.threshold : undefined}
-            tone={data.activations >= data.target ? "good" : "ink"}
-            size="sm"
-          />
-        </div>
-      </Card>
-
-      {followUps && followUps.links.length + followUps.expiring.length > 0 && (
-        <Card>
-          <Row
-            href="/l1/tindak"
-            label="Perlu ditindaklanjuti"
-            sub={`${followUps.links.length} link belum dibayar · ${followUps.expiring.length} segera habis`}
-            value={<ArrowRight className="h-4 w-4" />}
-            tone="warn"
-          />
-        </Card>
-      )}
-
-      {data.guarantee && (
-        <Card className="px-4 py-3">
-          <div className="flex items-center justify-between gap-3">
-            <p className="eyebrow">Jaminan income</p>
-            <div className="num text-[15px] font-semibold text-good">
-              {data.guarantee.projected > 0 ? `+${fmt(data.guarantee.projected)}` : "0"}
-            </div>
-          </div>
-          <div className="mt-2.5">
-            <Ticks
-              value={Math.min(data.activations, data.guarantee.minActivations)}
-              target={data.guarantee.minActivations}
-              tone={data.activations >= data.guarantee.minActivations ? "good" : "accent"}
-              size="sm"
-            />
-          </div>
-          <p className="mt-2 text-[13px] text-ink-mute">
-            Minimum {data.guarantee.minActivations} pelanggan baru, 3 bulan pertama.
-          </p>
-        </Card>
-      )}
-
-      <Card>
-        <div className="grid grid-cols-2 divide-x divide-line border-b border-line">
-          <Stat label={`Penghasilan ${periodLabel(data.period)}`} value={fmt(data.gross)} />
-          <Stat label="Pending" value={fmt(data.pending)} tone="warn" />
-        </div>
-        <Row
-          label="Held balance"
-          sub="Tidak hangus. Capai 5+ pelanggan baru untuk merilis."
-          value={fmt(data.heldBalance)}
-          tone={data.heldBalance > 0 ? "warn" : "mute"}
-        />
-        {data.nextPayout ? (
-          <Row
-            href="/l1/penghasilan?tab=payout"
-            label={`Payout ${periodLabel(data.nextPayout.period)}`}
-            sub={date(data.nextPayout.payoutDate)}
-            value={fmt(data.nextPayout.payable)}
-            valueSub={data.nextPayout.status === "PAID" ? "Dibayar" : "Dijadwalkan"}
+        {mix ? (
+          <SalesMixChart
+            buckets={mix.buckets}
+            plans={mix.plans}
+            range={range}
+            onRangeChange={setRange}
+            unitTotal={mix.unitTotal}
+            commissionTotal={mix.commissionTotal}
+            format={fmt}
           />
         ) : (
-          <Row label="Payout" sub="Belum ada payout terjadwal" value="—" tone="mute" />
+          <Loading rows={4} />
         )}
       </Card>
 
@@ -158,39 +73,55 @@ function Body() {
               href="/l1/pelanggan"
               className="flex items-center gap-1 text-[13px] font-semibold text-ink-soft"
             >
-              Lihat <ArrowRight className="h-3.5 w-3.5" />
+              Lihat semua <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           }
         >
           Pelanggan
         </SectionTitle>
-        <Card>
-          <div className="grid grid-cols-3 divide-x divide-line">
-            <Stat label="Aktif" value={data.customers.active} />
-            <Stat
-              label="≤7 hari"
-              value={data.customers.expiringSoon}
-              tone={data.customers.expiringSoon > 0 ? "warn" : "default"}
+        <Card className="overflow-hidden">
+          {customers ? (
+            <CustomerTable
+              rows={customers}
+              compact
+              onSelect={open}
+              emptyLabel="Belum ada pelanggan. Mulai dari tombol Jual."
             />
-            <Stat label="Lifetime" value={data.customers.lifetime} />
-          </div>
+          ) : (
+            <Loading rows={4} />
+          )}
         </Card>
       </div>
 
-      <Link
-        href="/l1/jual"
-        className="press flex items-center justify-between rounded-lg bg-ink px-4 py-4 text-white"
-      >
-        <span className="text-[15px] font-semibold">Buat tautan pembayaran</span>
-        <ArrowRight className="h-5 w-5" />
-      </Link>
+      <div>
+        <SectionTitle>Peringkat</SectionTitle>
+        {board ? (
+          <Leaderboard data={board} />
+        ) : (
+          <Card>
+            <Loading rows={3} />
+          </Card>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Link
+          href="/l1/kode"
+          className="press flex items-center gap-2 rounded border border-line bg-surface px-4 py-3 text-[14px] font-medium"
+        >
+          <Ticket className="h-4 w-4 text-ink-mute" />
+          Kode saya
+        </Link>
+        <Link
+          href="/banner"
+          className="press flex items-center gap-2 rounded border border-line bg-surface px-4 py-3 text-[14px] font-medium"
+        >
+          <ImageIcon className="h-4 w-4 text-ink-mute" />
+          Banner
+        </Link>
+      </div>
+
+      <CalonSheet row={calon} onClose={() => setCalon(null)} />
     </div>
   );
-}
-
-/** Days left in the current Jakarta month, today included. */
-function daysLeft(now: number) {
-  const d = new Date(now + 7 * 3600000);
-  const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
-  return last - d.getUTCDate() + 1;
 }

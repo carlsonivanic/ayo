@@ -1,275 +1,315 @@
-import { useQuery } from "convex/react";
-import { useRouter } from "next/router";
+import { useConvex, useQuery } from "convex/react";
+import { ChevronDown, ChevronUp, Download } from "lucide-react";
 import { useMemo, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { Guard } from "@/components/Guard";
-import { Card, Row, SectionTitle, Stat } from "@/components/ui/Card";
-import { Empty, Loading, Pill } from "@/components/ui/Feedback";
-import { Tabs } from "@/components/ui/Tabs";
+import { Card, SectionTitle, Stat } from "@/components/ui/Card";
+import { Loading, Pill, useToast } from "@/components/ui/Feedback";
 import { api } from "@/convex/_generated/api";
-import { currentPeriod, date, periodLabel, shiftPeriod } from "@/lib/format";
+import { Id } from "@/convex/_generated/dataModel";
+import { currentPeriod, date, dateShort, periodLabel } from "@/lib/format";
+import { downloadPayoutPdf, type PayoutLine } from "@/lib/payoutPdf";
 import { useMoney } from "@/lib/useMoney";
-
-type Tab = "penghasilan" | "payout" | "proyeksi";
+import { cn, errorMessage } from "@/lib/utils";
 
 export default function PenghasilanPage() {
-  const router = useRouter();
-  const initial = (router.query.tab as Tab) ?? "penghasilan";
   return (
     <Guard role="L1">
-      <AppShell title="Penghasilan">
-        <Body initial={initial} />
+      <AppShell title="Komisi">
+        <Body />
       </AppShell>
     </Guard>
   );
 }
 
-function Body({ initial }: { initial: Tab }) {
-  const [tab, setTab] = useState<Tab>(initial);
-  return (
-    <>
-      <Tabs<Tab>
-        value={tab}
-        onChange={setTab}
-        options={[
-          { value: "penghasilan", label: "Penghasilan" },
-          { value: "payout", label: "Payout" },
-          { value: "proyeksi", label: "Proyeksi" },
-        ]}
-      />
-      {tab === "penghasilan" && <Earnings />}
-      {tab === "payout" && <Payouts />}
-      {tab === "proyeksi" && <Projection />}
-    </>
-  );
-}
-
-const TYPE_LABEL: Record<string, string> = {
-  NEW_SALES: "Penjualan baru",
-  RECURRING: "Perpanjangan",
-  RENEWAL_INCENTIVE: "Insentif 2%",
-  JAMINAN: "Jaminan",
-  ADJUSTMENT: "Penyesuaian",
+type PayoutRow = {
+  id: Id<"payoutLines">;
+  period: string;
+  frequency: "WEEKLY" | "MONTHLY";
+  payoutDate: number;
+  status: "SCHEDULED" | "PAID" | "FAILED";
+  acquisitions: number;
+  newSales: number;
+  recurring: number;
+  renewal: number;
+  subtotal: number;
+  jaminan: number;
+  held: number;
+  releasedHeld: number;
+  adjustment: number;
+  payable: number;
 };
 
-function Earnings() {
+const STATUS = {
+  PAID: { label: "Dibayar", tone: "good" },
+  SCHEDULED: { label: "Dijadwalkan", tone: "accent" },
+  FAILED: { label: "Gagal", tone: "warn" },
+} as const;
+
+const DAYS = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
+
+function Body() {
   const now = useMemo(() => Date.now(), []);
-  const [period, setPeriod] = useState(currentPeriod(now));
-  const summary = useQuery(api.earnings.summary, { now });
-  const lines = useQuery(api.earnings.recent, { period });
   const fmt = useMoney();
+  const me = useQuery(api.users.me);
+  const week = useQuery(api.earnings.week, { now });
+  const summary = useQuery(api.earnings.summary, { now });
+  const settings = useQuery(api.settings.forL1, {});
+  const weekly = useQuery(api.payouts.history, { frequency: "WEEKLY", limit: 10 });
+  const monthly = useQuery(api.payouts.history, { frequency: "MONTHLY", limit: 12 });
 
-  if (!summary) return <Loading rows={4} />;
+  const frequency = settings?.myFrequency ?? "WEEKLY";
+  const latest = (frequency === "WEEKLY" ? weekly : monthly)?.find(
+    (row) => row.status !== "FAILED",
+  );
 
-  const periods = [0, 1, 2, 3, 4, 5].map((i) => shiftPeriod(currentPeriod(now), -i));
+  if (!week || !summary || !weekly || !monthly) return <Loading rows={4} />;
 
   return (
     <div className="space-y-5">
-      <Card>
-        <div className="grid grid-cols-2 divide-x divide-line border-b border-line">
+      <div className="grid grid-cols-2 gap-3">
+        <Card>
+          <Stat
+            label="Minggu ini"
+            value={fmt(week.amount)}
+            sub={`${week.count} penjualan terverifikasi`}
+          />
+        </Card>
+        <Card>
           <Stat
             label="Bulan ini"
             value={fmt(summary.thisMonth.gross)}
-            sub={summary.thisMonth.jaminan > 0 ? `+ jaminan ${fmt(summary.thisMonth.jaminan)}` : undefined}
+            sub={periodLabel(currentPeriod(now))}
           />
-          <Stat label="Bulan lalu" value={fmt(summary.lastMonth.gross)} />
-        </div>
-        <div className="grid grid-cols-2 divide-x divide-line">
-          <Stat label="Tahun berjalan" value={fmt(summary.ytd.gross)} />
-          <Stat label="Sejak awal" value={fmt(summary.allTime.total)} />
-        </div>
-      </Card>
-
-      {summary.pending > 0 && (
-        <Card className="flex items-center justify-between gap-3 border-accent bg-accent-soft px-4 py-3">
-          <div>
-            <p className="text-[14px] font-semibold text-accent-ink">Menunggu aktivasi</p>
-            <p className="mt-0.5 text-[13px] text-accent-ink/70">
-              Masuk payout setelah kode dipakai.
-            </p>
-          </div>
-          <span className="num text-[17px] font-semibold text-accent-ink">
-            {fmt(summary.pending)}
-          </span>
         </Card>
-      )}
+        <Card>
+          <Stat
+            label="Menunggu verifikasi"
+            value={fmt(summary.pending)}
+            tone={summary.pending > 0 ? "warn" : "default"}
+            sub={
+              me?.payoutProfileCompleted
+                ? "Masuk payout setelah diverifikasi"
+                : "Isi nomor DANA di Profil"
+            }
+          />
+        </Card>
+        <Card>
+          <Stat
+            label={latest?.status === "SCHEDULED" ? "Payout berikutnya" : "Payout terakhir"}
+            value={latest ? fmt(latest.payable) : "—"}
+            sub={
+              latest
+                ? `${date(latest.payoutDate)} · ${latest.frequency === "WEEKLY" ? "mingguan" : "bulanan"}`
+                : "Belum ada payout"
+            }
+          />
+        </Card>
+      </div>
 
       <div>
-        <SectionTitle
-          action={
-            <select
-              value={period}
-              onChange={(e) => setPeriod(e.target.value)}
-              className="rounded border border-line bg-surface px-2 py-1 text-[13px]"
-            >
-              {periods.map((p) => (
-                <option key={p} value={p}>
-                  {periodLabel(p)}
-                </option>
-              ))}
-            </select>
-          }
-        >
-          Rincian
+        <SectionTitle helper="Payout mingguan dijalankan tiap Rabu untuk minggu sebelumnya.">
+          Riwayat mingguan
         </SectionTitle>
-        {!lines ? (
-          <Loading />
-        ) : lines.length === 0 ? (
-          <Empty title="Belum ada penghasilan di periode ini." />
+        {weekly.length === 0 ? (
+          <Card className="px-4 py-8 text-center text-[13px] text-ink-mute">
+            Belum ada payout mingguan.
+          </Card>
         ) : (
-          <Card>
-            {lines.map((line) => (
-              <Row
-                key={line.id}
-                label={TYPE_LABEL[line.type] ?? line.type}
-                sub={[date(line.date), line.storeName, line.planName]
-                  .filter(Boolean)
-                  .join(" · ")}
-                value={fmt(line.amount)}
-                tone={line.status === "PENDING" ? "mute" : "good"}
-                valueSub={
-                  line.status === "PENDING" ? (
-                    <Pill tone="accent">Pending</Pill>
-                  ) : line.frozen ? (
-                    <Pill tone="warn">Beku</Pill>
-                  ) : undefined
-                }
+          <div className="space-y-3">
+            {weekly.map((row) => (
+              <PayoutCard
+                key={row.id}
+                row={row}
+                agentName={me?.name ?? "Agen"}
+                fmt={fmt}
               />
             ))}
-          </Card>
+          </div>
         )}
       </div>
+
+      <div>
+        <SectionTitle helper="Payout bulanan memakai frekuensi bulanan jika diaktifkan admin.">
+          Riwayat bulanan
+        </SectionTitle>
+        {monthly.length === 0 ? (
+          <Card className="px-4 py-8 text-center text-[13px] text-ink-mute">
+            {frequency === "MONTHLY"
+              ? "Belum ada payout bulanan."
+              : "Belum ada payout bulanan. Payout Anda berjalan mingguan."}
+          </Card>
+        ) : (
+          <div className="space-y-3">
+            {monthly.map((row) => (
+              <PayoutCard
+                key={row.id}
+                row={row}
+                agentName={me?.name ?? "Agen"}
+                fmt={fmt}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      <p className="px-1 text-[12px] leading-relaxed text-ink-faint">
+        Payout berikutnya:{" "}
+        {frequency === "WEEKLY"
+          ? `setiap ${DAYS[settings?.payout.weeklyPayDay ?? 3] ?? "Rabu"}`
+          : `tanggal ${settings?.payout.monthlyPayDay ?? 5}`}
+        . Semua angka berasal dari data payout yang tersimpan.
+      </p>
     </div>
   );
 }
 
-function Payouts() {
-  const data = useQuery(api.payouts.mine);
-  const fmt = useMoney();
-  if (!data) return <Loading rows={4} />;
+function PayoutCard({
+  row,
+  agentName,
+  fmt,
+}: {
+  row: PayoutRow;
+  agentName: string;
+  fmt: (value: number) => string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const convex = useConvex();
+  const toast = useToast();
+  const detail = useQuery(
+    api.payouts.historyDetail,
+    open ? { lineId: row.id } : "skip",
+  );
+  const status = STATUS[row.status];
+
+  async function download() {
+    setDownloading(true);
+    try {
+      const lines =
+        detail ??
+        (await convex.query(api.payouts.historyDetail, { lineId: row.id }));
+      await downloadPayoutPdf(row, lines as PayoutLine[], agentName);
+    } catch (err) {
+      toast(errorMessage(err), "warn");
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   return (
-    <div className="space-y-5">
-      <Card>
-        <Row
-          label="Held balance"
-          sub="Tidak hangus. Capai 5+ pelanggan baru untuk merilis semua."
-          value={fmt(data.heldBalance)}
-          tone={data.heldBalance > 0 ? "warn" : "mute"}
-        />
-        {!data.profileCompleted && (
-          <Row
-            href="/profil"
-            label="Nomor DANA belum diisi"
-            sub="Payout tertahan sampai nomor DANA diisi."
-            value="Isi"
-            tone="warn"
-          />
-        )}
-      </Card>
+    <Card className="overflow-hidden">
+      <div className="flex items-start justify-between gap-3 px-4 py-3">
+        <div className="min-w-0">
+          <div className="text-[15px] font-semibold">{periodLabel(row.period)}</div>
+          <div className="mt-0.5 text-[13px] text-ink-mute">
+            {date(row.payoutDate)} · {row.acquisitions} penjualan baru
+          </div>
+        </div>
+        <div className="shrink-0 text-right">
+          <div className="num text-[18px] font-semibold">{fmt(row.payable)}</div>
+          <div className="mt-1">
+            <Pill tone={status.tone}>{status.label}</Pill>
+          </div>
+        </div>
+      </div>
 
-      {data.lines.length === 0 ? (
-        <Empty title="Belum ada payout." />
-      ) : (
-        <div className="space-y-3">
-          {data.lines.map((line) => (
-            <Card key={line.id} className="overflow-hidden">
-              <div className="flex items-center justify-between gap-3 px-4 py-3">
-                <div>
-                  <div className="text-[15px] font-semibold">{periodLabel(line.period)}</div>
-                  <div className="mt-0.5 text-[13px] text-ink-mute">
-                    {date(line.payoutDate)} · {line.frequency === "WEEKLY" ? "mingguan" : "bulanan"}
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="num text-[18px] font-semibold">{fmt(line.payable)}</div>
-                  <div className="mt-1">
-                    <Pill
-                      tone={
-                        line.status === "PAID"
-                          ? "good"
-                          : line.status === "FAILED"
-                            ? "warn"
-                            : "accent"
-                      }
-                    >
-                      {line.status === "PAID"
-                        ? "Dibayar"
-                        : line.status === "FAILED"
-                          ? "Gagal"
-                          : "Dijadwalkan"}
-                    </Pill>
-                  </div>
-                </div>
-              </div>
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-1 border-t border-line bg-black/[0.015] px-4 py-3 text-[13px]">
-                <Breakdown label="Gross" value={fmt(line.gross)} />
-                <Breakdown label="Jaminan" value={fmt(line.jaminan)} />
-                <Breakdown label="Held" value={`-${fmt(line.held)}`} />
-                <Breakdown label="Held dirilis" value={fmt(line.releasedHeld)} />
-                {line.adjustment !== 0 && (
-                  <Breakdown label="Penyesuaian" value={fmt(line.adjustment)} />
-                )}
-              </dl>
-            </Card>
-          ))}
+      <div className="flex items-center justify-between gap-3 border-t border-line bg-black/[0.015] px-4 py-2.5">
+        <dl className="flex min-w-0 flex-wrap gap-x-4 gap-y-1 text-[12.5px]">
+          <div className="flex gap-1.5">
+            <dt className="text-ink-mute">Penjualan</dt>
+            <dd className="num font-semibold">{fmt(row.newSales)}</dd>
+          </div>
+          <div className="flex gap-1.5">
+            <dt className="text-ink-mute">Berulang</dt>
+            <dd className="num font-semibold">{fmt(row.recurring)}</dd>
+          </div>
+          <div className="flex gap-1.5">
+            <dt className="text-ink-mute">Insentif</dt>
+            <dd className="num font-semibold">{fmt(row.renewal)}</dd>
+          </div>
+        </dl>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={() => void download()}
+            disabled={downloading}
+            aria-label="Unduh PDF payout"
+            className="rounded p-2 text-ink-mute hover:bg-black/[0.04] disabled:opacity-40"
+          >
+            <Download className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setOpen((value) => !value)}
+            aria-label={open ? "Tutup rincian" : "Buka rincian"}
+            className="rounded p-2 text-ink-mute hover:bg-black/[0.04]"
+          >
+            {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </button>
+        </div>
+      </div>
+
+      {open && (
+        <div>
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 border-t border-line px-4 py-3 text-[13px]">
+            <Breakdown label="Subtotal" value={fmt(row.subtotal)} />
+            <Breakdown label="Jaminan" value={fmt(row.jaminan)} />
+            <Breakdown label="Ditahan" value={row.held > 0 ? `-${fmt(row.held)}` : "0"} />
+            <Breakdown label="Jaminan dilepas" value={fmt(row.releasedHeld)} />
+            {row.adjustment !== 0 && (
+              <Breakdown label="Penyesuaian" value={fmt(row.adjustment)} />
+            )}
+            <Breakdown label="Dibayar" value={fmt(row.payable)} bold />
+          </dl>
+
+          <div className="border-t border-line">
+            {!detail ? (
+              <Loading rows={2} />
+            ) : detail.length === 0 ? (
+              <p className="px-4 py-5 text-center text-[13px] text-ink-mute">
+                Tidak ada rincian tersimpan.
+              </p>
+            ) : (
+              <ul className="divide-y divide-line">
+                {detail.map((line) => (
+                  <li key={line.id} className="flex items-start justify-between gap-3 px-4 py-2.5">
+                    <div className="min-w-0">
+                      <p className="truncate text-[13.5px] font-medium">
+                        {line.customerName ?? "—"}
+                      </p>
+                      <p className="mt-0.5 truncate text-[12px] text-ink-mute">
+                        {dateShort(line.date)} · {line.planName ?? "—"}
+                        {line.code ? ` · ${line.code}` : ""}
+                      </p>
+                    </div>
+                    <span className="num shrink-0 text-[13.5px] font-semibold">
+                      {fmt(line.amount)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 
-function Breakdown({ label, value }: { label: string; value: string }) {
+function Breakdown({
+  label,
+  value,
+  bold,
+}: {
+  label: string;
+  value: string;
+  bold?: boolean;
+}) {
   return (
     <div className="flex justify-between gap-2">
       <dt className="text-ink-mute">{label}</dt>
-      <dd className="num">{value}</dd>
-    </div>
-  );
-}
-
-function Projection() {
-  const now = useMemo(() => Date.now(), []);
-  const data = useQuery(api.earnings.projection, { now });
-  const fmt = useMoney();
-  if (!data) return <Loading rows={3} />;
-
-  const max = Math.max(...data.next12, 1);
-
-  return (
-    <div className="space-y-5">
-      <Card>
-        <Stat
-          label="Proyeksi perpanjangan"
-          value={fmt(data.total)}
-          sub={`${data.merchants} pelanggan aktif · tanpa penjualan baru`}
-        />
-      </Card>
-
-      <div>
-        <SectionTitle helper="Hanya perpanjangan pelanggan aktif, sampai masa 36 bulan berakhir.">
-          12 bulan ke depan
-        </SectionTitle>
-        <Card className="p-4">
-          <div className="flex h-24 items-end gap-1.5">
-            {data.next12.map((value, index) => (
-              <div key={index} className="flex flex-1 flex-col items-center gap-1.5">
-                <div
-                  className="w-full rounded-[2px] bg-ink"
-                  style={{ height: `${Math.max((value / max) * 100, value > 0 ? 6 : 2)}%` }}
-                />
-                <span className="text-[10px] text-ink-faint">{index + 1}</span>
-              </div>
-            ))}
-          </div>
-        </Card>
-      </div>
-
-      <Card>
-        {(["Y1", "Y2", "Y3"] as const).map((year) => (
-          <Row key={year} label={year} value={fmt(data.byYear[year] ?? 0)} />
-        ))}
-      </Card>
+      <dd className={cn("num", bold && "font-semibold")}>{value}</dd>
     </div>
   );
 }

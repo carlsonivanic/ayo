@@ -6,8 +6,12 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /** Share on WhatsApp — the only channel agents use with merchants (§4.1). */
-export function whatsappUrl(text: string): string {
-  return `https://wa.me/?text=${encodeURIComponent(text)}`;
+export function whatsappUrl(text: string, phone?: string | null): string {
+  const digits = phone?.replace(/\D/g, "");
+  if (!digits) return `https://wa.me/?text=${encodeURIComponent(text)}`;
+  // Local numbers are stored as +62…, but agents type 08… into the form.
+  const normalized = digits.startsWith("0") ? `62${digits.slice(1)}` : digits;
+  return `https://wa.me/${normalized}?text=${encodeURIComponent(text)}`;
 }
 
 export async function copy(text: string): Promise<boolean> {

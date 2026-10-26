@@ -492,6 +492,121 @@ export const mine = query({
   },
 });
 
+/**
+ * §11 payout history, one frequency at a time. The card needs the split the
+ * stored payout row does not carry — how many sales, how much was recurring,
+ * how much was the 2% renewal incentive — so the lines that the payout actually
+ * carried are read back and grouped by type. Nothing is recalculated: amounts
+ * come from the ledger, and the totals shown next to `payable` are the stored
+ * payout row's own fields.
+ */
+export const history = query({
+  args: {
+    frequency: v.union(v.literal("WEEKLY"), v.literal("MONTHLY")),
+    limit: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const user = await requireActive(ctx);
+    const limit = Math.max(1, Math.min(Math.floor(args.limit), 24));
+
+    const rows = await ctx.db
+      .query("payoutLines")
+      .withIndex("by_user_date", (q) => q.eq("userId", user._id))
+      .order("desc")
+      .take(200);
+    const picked = rows.filter((row) => row.frequency === args.frequency).slice(0, limit);
+
+    return await Promise.all(
+      picked.map(async (row) => {
+        const lines = await ctx.db
+          .query("earningLines")
+          .withIndex("by_l1_payout", (q) =>
+            q.eq("l1Id", user._id).eq("payoutLineId", row._id),
+          )
+          .collect();
+
+        const sum = (type: Doc<"earningLines">["type"]) =>
+          lines.filter((l) => l.type === type).reduce((total, l) => total + l.amount, 0);
+        const acquisitions = lines.filter((l) => l.type === "NEW_SALES").length;
+        const newSales = sum("NEW_SALES");
+        const recurring = sum("RECURRING");
+        const renewal = sum("RENEWAL_INCENTIVE");
+
+        return {
+          id: row._id,
+          period: row.period,
+          frequency: row.frequency,
+          payoutDate: row.payoutDate,
+          status: row.status,
+          acquisitions,
+          newSales,
+          recurring,
+          renewal,
+          subtotal: newSales + recurring + renewal,
+          jaminan: row.jaminan,
+          held: row.held,
+          releasedHeld: row.releasedHeld,
+          adjustment: row.adjustment,
+          payable: row.payable,
+        };
+      }),
+    );
+  },
+});
+
+/** The carried lines behind one payout, with the code and the buyer's name. */
+export const historyDetail = query({
+  args: { lineId: v.id("payoutLines") },
+  handler: async (ctx, args) => {
+    const user = await requireActive(ctx);
+    const payout = await ctx.db.get("payoutLines", args.lineId);
+    if (!payout || payout.userId !== user._id) fail("NOT_FOUND", "Payout tidak ditemukan.");
+
+    const lines = await ctx.db
+      .query("earningLines")
+      .withIndex("by_l1_payout", (q) => q.eq("l1Id", user._id).eq("payoutLineId", payout._id))
+      .collect();
+
+    const links = await ctx.db
+      .query("paymentLinks")
+      .withIndex("by_l1", (q) => q.eq("l1Id", user._id))
+      .order("desc")
+      .take(500);
+    const contact = new Map<string, string>();
+    for (const link of links) {
+      if (!link.buyerMerchantId || !link.customerName?.trim()) continue;
+      contact.set(link.buyerMerchantId, link.customerName.trim());
+    }
+
+    return await Promise.all(
+      lines
+        .sort((a, b) => b.date - a.date)
+        .map(async (line) => {
+          const merchant = line.merchantId
+            ? await ctx.db.get("merchants", line.merchantId)
+            : null;
+          const plan = line.planId ? await ctx.db.get("productPlans", line.planId) : null;
+          const code = line.sourceCodeId
+            ? ((await ctx.db.get("subscriptionCodes", line.sourceCodeId))?.code ?? null)
+            : null;
+          return {
+            id: line._id,
+            date: line.date,
+            type: line.type,
+            amount: line.amount,
+            status: line.status,
+            code,
+            customerName:
+              (line.merchantId ? contact.get(line.merchantId) : undefined) ??
+              merchant?.storeName ??
+              null,
+            planName: plan?.name ?? null,
+          };
+        }),
+    );
+  },
+});
+
 export const adminList = query({
   args: {
     role: v.optional(v.union(v.literal("L1"), v.literal("L2"))),

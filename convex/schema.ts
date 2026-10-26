@@ -242,6 +242,10 @@ export default defineSchema({
     idempotencyKey: v.optional(v.string()),
     buyerSellMoreStoreId: v.optional(v.string()),
     buyerMerchantId: v.optional(v.id("merchants")),
+    // Customer the L1 captured before the link was sent (§4.1). Kept on the
+    // link because a merchant row only exists after redemption.
+    customerName: v.optional(v.string()),
+    customerPhone: v.optional(v.string()),
     gatewayRef: v.optional(v.string()),
     refundedAt: v.optional(v.number()),
 
